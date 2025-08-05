@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>QR Time Logger</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial; background: #f5f5f5; padding: 20px; }
+    .container { display: flex; gap: 20px; max-width: 1200px; margin: auto; }
+    .scanner-container, .report-container {
+      background: white; padding: 20px; border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .scanner-container { flex: 1; }
+    .report-container { flex: 2; }
+    #qr-reader { width: 100%; max-width: 900px; margin: 0 auto 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    #scan-display {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: #fff; border: 2px solid #4CAF50; border-radius: 10px;
+      padding: 20px 30px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+      z-index: 9999; display: none; text-align: center; font-size: 18px;
+    }
+    button { margin-top: 15px; padding: 10px 15px; font-size: 14px; cursor: pointer; }
+
+.header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.header .logo {
+  max-width: 100px;
+  height: auto;
+  margin-bottom: 10px;
+}
+
+.header {
+  margin-bottom: 30px;
+}
+
+.header-flex {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.header {
+  margin-bottom: 30px;
+}
+
+.header-flex {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+
+.logo {
+  max-width: 100px;
+  height: auto;
+}
+
+.company-name {
+  font-size: 50px;
+  margin: 0;
+}
+
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-flex">
+    <img src="image/arklogo.png" alt="Company Logo" class="logo">
+    <h1 class="company-name">ARK Technological Institute Education System Inc.</h1>
+</div>
+      <h3 class="company-address">J-Seven Bldg. Magallanes Cor. Granja St. Brgy. 7 Lucena City.</h3>
+</div>
+
+
+
+<div class="container">
+  <section class="scanner-container">
+    <h2>📷 Scan QR Code</h2>
+    <div id="qr-reader"></div>
+  </section>
+  <section class="report-container">
+    <h2>📋 Recent Attendance</h2>
+    <table id="attendanceTable">
+      <thead>
+        <tr><th>Student ID</th><th>Name</th><th>Section</th><th>Time In</th><th>Time Out</th><th>Date</th></tr>
+      </thead>
+      <tbody id="report-body"></tbody>
+    </table>
+    <button onclick="downloadExcel()">⬇️ Download Excel</button>
+  </section>
+</div>
+<div id="scan-display"></div>
+
+<script>
+  const html5QrCode = new Html5Qrcode("qr-reader");
+  let scanning = false;
+
+  function formatTimeOnly(str) {
+    const date = new Date(str);
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+  }
+
+  function formatDateOnly(str) {
+    const date = new Date(str);
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  }
+
+  function getCurrentTime() { return new Date().toString(); }
+  function getTodayDate() { return formatDateOnly(new Date()); }
+
+  function getActionType(id) {
+    const logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+    const today = getTodayDate();
+    const todayLogs = logs.filter(e => e.studentID === id && e.date === today);
+    if (todayLogs.length === 0) return "Time In";
+    return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
+  }
+
+function displayScanInfo(id, name, action) {
+  const el = document.getElementById("scan-display");
+  el.innerHTML = `<div style="font-size:24px;margin-bottom:15px;">✅</div>
+                  <div><strong>${action}</strong> recorded</div>
+                  <div>${name}</div><div style="color:#666;">ID: ${id}</div>`;
+  el.style.display = "block";
+  const msg = new SpeechSynthesisUtterance(`${action} recorded for ${name}`);
+  msg.pitch = 1; msg.rate = 1;
+  speechSynthesis.speak(msg);
+  setTimeout(() => el.style.display = "none", 2500);
+}
+
+  function logAttendance(details) {
+    const [id, name, section, contact] = details;
+    const action = getActionType(id);
+    const time = getCurrentTime();
+    const date = getTodayDate();
+    const entry = { studentID: id, studentName: name, studSection: section, studContact: contact, time, date, action };
+    let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+    logs.push(entry);
+    localStorage.setItem("attendance", JSON.stringify(logs));
+    displayScanInfo(id, name, action);
+    refreshLogs();
+  }
+
+  function onScanSuccess(text) {
+    if (scanning) return;
+    scanning = true;
+    const details = text.split('|').map(s => s.trim());
+    if (details.length >= 4) logAttendance(details);
+    setTimeout(() => scanning = false, 1500);
+  }
+
+  html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess)
+    .catch(() => document.getElementById("qr-reader").innerHTML =
+      `<p style="color:red;">Failed to start camera. Ensure camera access is allowed.</p><button onclick="window.location.reload()">Retry</button>`);
+
+function refreshLogs() {
+  let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+  const now = new Date();
+
+  // Remove logs older than 7 days
+  logs = logs.filter(entry => {
+    const entryDate = new Date(entry.date);
+    const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
+    return diffDays <= 7;
+  });
+
+  localStorage.setItem("attendance", JSON.stringify(logs));
+  renderTable(pairEntries(logs));
+}
+
+  function pairEntries(entries) {
+    const pairs = [], grouped = {};
+    entries.forEach(e => {
+      const key = `${e.studentID}_${e.date}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(e);
+    });
+
+    Object.values(grouped).forEach(g => {
+      g.sort((a,b) => new Date(a.time) - new Date(b.time));
+      let i = 0;
+      while (i < g.length) {
+        const curr = g[i];
+        if (curr.action === "Time In") {
+          let out = null;
+          for (let j = i+1; j < g.length; j++) {
+            if (g[j].action === "Time Out") { out = g[j]; i = j+1; break; }
+          }
+          pairs.push({ studentID: curr.studentID, studentName: curr.studentName, studSection: curr.studSection,
+            timeIn: formatTimeOnly(curr.time), timeOut: out ? formatTimeOnly(out.time) : "-", date: curr.date });
+          if (!out) i++;
+        } else {
+          pairs.push({ studentID: curr.studentID, studentName: curr.studentName, studSection: curr.studSection,
+            timeIn: "-", timeOut: formatTimeOnly(curr.time), date: curr.date });
+          i++;
+        }
+      }
+    });
+
+    return pairs;
+  }
+
+ function renderTable(paired) {
+  const tbody = document.getElementById("report-body");
+  tbody.innerHTML = "";
+
+  // Sort by latest entry
+  const sorted = paired.sort((a, b) =>
+    new Date(b.date + ' ' + (b.timeIn !== '-' ? b.timeIn : b.timeOut)) -
+    new Date(a.date + ' ' + (a.timeIn !== '-' ? a.timeIn : a.timeOut))
+  );
+
+  const recent = sorted.slice(0, 2); // Get top 2 latest logs
+
+  if (recent.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No attendance records found</td></tr>`;
+    return;
+  }
+
+  recent.forEach(e => {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${e.studentID}</td><td>${e.studentName}</td><td>${e.studSection}</td>
+                     <td>${e.timeIn}</td><td>${e.timeOut}</td><td>${e.date}</td>`;
+    tbody.appendChild(row);
+  });
+}
+
+function downloadExcel() {
+  let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+  if (logs.length === 0) return;
+
+  const now = new Date();
+
+  // 🧹 Clean logs older than 7 days
+  logs = logs.filter(entry => {
+    const entryDate = new Date(entry.date);
+    const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
+    return diffDays <= 7;
+  });
+
+  localStorage.setItem("attendance", JSON.stringify(logs));
+
+  const pairedLogs = pairEntries(logs);
+  const wb = XLSX.utils.book_new();
+
+  // Group paired logs by date
+  const byDate = {};
+  pairedLogs.forEach(log => {
+    if (!byDate[log.date]) byDate[log.date] = [];
+    byDate[log.date].push({
+      "StudID": log.studentID,
+      "Name": log.studentName,
+      "StudSection": log.studSection,
+      "Time In": log.timeIn,
+      "Time Out": log.timeOut,
+      "Date": log.date
+    });
+  });
+
+  // Create a worksheet per day
+  Object.keys(byDate).forEach(date => {
+    const ws = XLSX.utils.json_to_sheet(byDate[date]);
+    XLSX.utils.book_append_sheet(wb, ws, date);
+  });
+
+  XLSX.writeFile(wb, `Attendance_Logs_By_Day_${getTodayDate()}.xlsx`);
+}
+
+  document.addEventListener("DOMContentLoaded", () => refreshLogs());
+</script>
+</body>
+</html>
