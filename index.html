@@ -142,17 +142,40 @@ function displayScanInfo(id, name, action) {
 }
 
   function logAttendance(details) {
-    const [id, name, section, contact] = details;
-    const action = getActionType(id);
-    const time = getCurrentTime();
-    const date = getTodayDate();
-    const entry = { studentID: id, studentName: name, studSection: section, studContact: contact, time, date, action };
-    let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
-    logs.push(entry);
-    localStorage.setItem("attendance", JSON.stringify(logs));
-    displayScanInfo(id, name, action);
-    refreshLogs();
-  }
+  const [id, name, section, contact] = details;
+  const action = getActionType(id);
+  const time = getCurrentTime();
+  const date = getTodayDate();
+
+  const entry = {
+    studentID: id,
+    studentName: name,
+    studSection: section,
+    studContact: contact,
+    time,
+    date,
+    action
+  };
+
+  // Save to localStorage
+  let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+  logs.push(entry);
+  localStorage.setItem("attendance", JSON.stringify(logs));
+
+  // ✅ Send to Google Sheet Web App
+  fetch("https://script.google.com/macros/s/YOUR-SCRIPT-ID/exec", {
+    method: "POST",
+    body: JSON.stringify(entry),
+    headers: { "Content-Type": "application/json" }
+  })
+  .then(res => res.text())
+  .then(response => console.log("Sheet response:", response))
+  .catch(err => console.error("Error sending to sheet:", err));
+
+  displayScanInfo(id, name, action);
+  refreshLogs();
+}
+
 
   function onScanSuccess(text) {
     if (scanning) return;
@@ -284,3 +307,4 @@ function downloadExcel() {
 </body>
 
 </html>
+
