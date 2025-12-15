@@ -221,7 +221,7 @@
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
 
 
-    /* --- Utility Functions (Unchanged) --- */
+    /* --- Utility Functions --- */
     function formatTimeOnly(str) {
         const date = new Date(str);
         return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
@@ -247,47 +247,62 @@
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // MODIFIED: Accepts pictureURL now
+    // --- MODIFIED: Includes logic for a fallback image ---
     function displayScanInfo(id, name, action, pictureUrl) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : "⬅️";
         
-        // Dynamic HTML for the pop-up
-        let imageHtml = '';
-        // CHECK URL: Ensure the URL is present and looks like a URL (starts with http or https)
-        const urlCheck = pictureUrl ? pictureUrl.toLowerCase() : '';
+        // --- Image Handling Logic ---
+        // You MUST place a file named 'default_student.png' in your 'image' directory
+        const fallbackImageUrl = "image/arklogo.png"; 
+        let imageUrl = fallbackImageUrl;
+        
+        // Validate URL: Must be present and start with http or https
+        const urlCheck = (pictureUrl || '').toLowerCase();
+        
         if (urlCheck.startsWith('http')) {
-             imageHtml = `<img id="student-image" src="${pictureUrl}" alt="Student Photo">`;
-             // Note: Changed alt text to "Student Photo" for better accessibility
-        } else {
-             console.warn("No valid picture URL found for display:", pictureUrl);
+            imageUrl = pictureUrl;
+        } else if (pictureUrl && action !== 'Failed') { 
+            // Only log warning if QR data was scanned but URL was bad/missing
+            console.warn("No valid picture URL found in QR data. Using fallback image.");
         }
 
-        el.innerHTML = `<div class="icon">${icon}</div>
+        // Dynamic HTML for the pop-up
+        const imageHtml = action === 'Failed' 
+            ? '' // Don't show an image on error
+            : `<img id="student-image" src="${imageUrl}" alt="${name}'s Photo">`;
+        
+        const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
+
+        el.innerHTML = `<div class="icon" style="color:${action === 'Failed' ? '#dc3545' : 'var(--secondary-color)'};">${icon}</div>
                         ${imageHtml}
-                        <div><strong>${action}</strong> Recorded</div>
+                        <div><strong>${actionText}</strong></div>
                         <div>${name}</div>
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        const msg = new SpeechSynthesisUtterance(`${name}. ${action} confirmed.`);
+        const speechName = name === 'Invalid QR Code' ? 'Attention' : name;
+        const speechAction = action === 'Failed' ? 'failed' : `${action} confirmed`;
+        const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
         msg.pitch = 1; msg.rate = 1.1;
         speechSynthesis.speak(msg);
         
         setTimeout(() => el.style.display = "none", 2500);
     }
+    // -----------------------------------------------------------------
+
 
     /* --- Core Logging Logic (MODIFIED) --- */
     function logAttendance(details) {
-        // Now expecting 5 values: [id, name, section, contact, pictureUrl]
+        // Expecting 5 values: [id, name, section, contact, pictureUrl]
         const [id, name, section, contact, pictureUrl] = details;
         
-        // Minor modification for robust checking, ensuring pictureUrl is handled if undefined
+        
         if (!id || !name || !section) {
-             console.error("Invalid QR code format:", details);
-             // Ensure the display message is for the end-user
-             displayScanInfo('ERROR', 'Invalid QR Code', 'Failed', '');
-             return;
+            console.error("Invalid QR code format:", details);
+            // Ensure the display message is for the end-user
+            displayScanInfo('N/A', 'Invalid QR Code', 'Failed', '');
+            return;
         }
 
         const action = getActionType(id);
@@ -335,17 +350,13 @@
         // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
         const details = text.split('|').map(s => s.trim()); 
         
-        // We now require at least 5 values for full detail (ID, Name, Section, Contact, Picture URL)
-        // Check for at least ID, Name, and Section (3) to log, but ideally 5 for the picture
+        // We now require at least 3 values (ID, Name, Section)
         if (details.length >= 3) { 
-            // The details array will contain at least [ID, NAME, SECTION]
-            // JavaScript destructuring handles missing values gracefully (they'll be undefined)
-            // logAttendance handles this by using 'N/A' for contact/pictureUrl if missing.
             logAttendance(details);
         } else {
             console.warn("QR Code data insufficient:", text);
-            // Pass empty string for pictureUrl if data is bad
-            displayScanInfo('N/A', 'Data Error', 'Warning', ''); 
+            // Pass minimal info for error display
+            displayScanInfo('N/A', 'Invalid QR Code', 'Failed', ''); 
         }
 
         // Delay the next scan to prevent double-scans
@@ -371,7 +382,7 @@
     }
 
 
-    /* --- Reporting and Local Storage Management (Unchanged logic, minor change to entry structure) --- */
+    /* --- Reporting and Local Storage Management --- */
 
     function refreshLogs() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
@@ -389,7 +400,7 @@
     }
 
     /**
-     * Groups Time In and Time Out entries into single attendance records. (Unchanged)
+     * Groups Time In and Time Out entries into single attendance records.
      */
     function pairEntries(entries) {
         const pairs = [], grouped = {};
@@ -475,7 +486,7 @@
         });
     }
 
-    /* --- Excel Download Logic (Unchanged) --- */
+    /* --- Excel Download Logic --- */
 
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
