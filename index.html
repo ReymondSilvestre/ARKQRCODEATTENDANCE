@@ -211,6 +211,47 @@
     let scanning = false;
     // IMPORTANT: Replace this with YOUR Google Apps Script Web App URL
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
+    
+    // --- NEW: Global variable for the selected Philippine voice ---
+    let philippineVoice = null;
+
+    /**
+     * Attempts to find a Philippine-related voice on the system.
+     */
+    function setPhilippineVoice() {
+        if (philippineVoice) return; // Already set
+        
+        const voices = speechSynthesis.getVoices();
+        const preferredLang = ['fil', 'tl', 'en-ph', 'en-us', 'en']; // Filipino, Tagalog, English (PH), English (US), Generic English
+        
+        // 1. Try to find a voice explicitly tagged with 'fil' or 'tl' (Tagalog/Filipino)
+        philippineVoice = voices.find(voice => 
+            voice.lang.toLowerCase().includes('fil') || voice.lang.toLowerCase().includes('tl')
+        );
+
+        if (!philippineVoice) {
+             // 2. Try to find a voice whose name includes "Filipino", "Tagalog", or "Philippines" (case-insensitive)
+            const keywordMatch = voices.find(voice => 
+                voice.name.toLowerCase().includes('filipino') || 
+                voice.name.toLowerCase().includes('tagalog') || 
+                voice.name.toLowerCase().includes('philippines')
+            );
+            philippineVoice = keywordMatch;
+        }
+
+        if (!philippineVoice) {
+            // 3. Fallback to a standard English voice (e.g., 'en-US' or generic 'en') if available
+            philippineVoice = voices.find(voice => voice.lang.toLowerCase().startsWith('en-us') || voice.lang.toLowerCase().startsWith('en'));
+            console.warn("Philippine voice not found. Falling back to default English voice.");
+        }
+    }
+
+    // Since voices might load asynchronously, we need to wait for them
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = setPhilippineVoice;
+    }
+    // Call immediately in case voices are already loaded
+    setPhilippineVoice();
 
 
     /* --- Utility Functions --- */
@@ -239,13 +280,11 @@
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // --- MODIFIED: REMOVED student photo logic/HTML from this function ---
+    // --- MODIFIED: Added voice selection logic to the function ---
     function displayScanInfo(id, name, action, pictureUrl) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : "⬅️";
         
-        // **PHOTO LOGIC REMOVED**
-
         const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
 
         // The HTML now only includes the icon, text, name, and ID.
@@ -255,11 +294,24 @@
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
+        // --- VOICE LOGIC START ---
         const speechName = name === 'Invalid QR Code' ? 'Attention' : name;
         const speechAction = action === 'Failed' ? 'failed' : `${action} confirmed`;
         const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
-        msg.pitch = 1; msg.rate = 1.1;
+        
+        // Attempt to apply the selected voice, if found
+        if (philippineVoice) {
+            msg.voice = philippineVoice;
+            // Adjust rate and pitch slightly for a more 'local' sounding English/Taglish tone
+            msg.pitch = 1; 
+            msg.rate = 0.95; 
+        } else {
+             msg.pitch = 1; 
+             msg.rate = 1.1; // Default rate if no specific voice is set
+        }
+
         speechSynthesis.speak(msg);
+        // --- VOICE LOGIC END ---
         
         setTimeout(() => el.style.display = "none", 2500);
     }
