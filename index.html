@@ -214,40 +214,48 @@
     let philippineVoice = null;
 
     /**
-     * Attempts to find a Philippine-related voice on the system for text-to-speech.
+     * Attempts to find the most suitable Philippine-localized voice.
+     * Voice availability depends entirely on the operating system and browser.
      */
     function setPhilippineVoice() {
         if (philippineVoice) return; // Already set
         
         const voices = speechSynthesis.getVoices();
         
-        // 1. Try to find a voice explicitly tagged with 'fil' or 'tl' (Tagalog/Filipino)
+        // --- 1. Top Priority: Specific Tagalog/Filipino language codes ---
         philippineVoice = voices.find(voice => 
-            voice.lang.toLowerCase().includes('fil') || voice.lang.toLowerCase().includes('tl')
+            voice.lang.toLowerCase().includes('fil-ph') || 
+            voice.lang.toLowerCase().includes('tl-ph') || 
+            voice.lang.toLowerCase().includes('fil') || 
+            voice.lang.toLowerCase().includes('tl')
         );
 
         if (!philippineVoice) {
-             // 2. Try to find a voice whose name includes "Filipino", "Tagalog", or "Philippines" (case-insensitive)
-            const keywordMatch = voices.find(voice => 
+             // --- 2. Second Priority: Names containing relevant keywords ---
+            philippineVoice = voices.find(voice => 
                 voice.name.toLowerCase().includes('filipino') || 
                 voice.name.toLowerCase().includes('tagalog') || 
                 voice.name.toLowerCase().includes('philippines')
             );
-            philippineVoice = keywordMatch;
         }
 
         if (!philippineVoice) {
-            // 3. Fallback to a standard English voice (e.g., 'en-US' or generic 'en') if available
-            philippineVoice = voices.find(voice => voice.lang.toLowerCase().startsWith('en-us') || voice.lang.toLowerCase().startsWith('en'));
+            // --- 3. Fallback: Generic English voice ---
+            philippineVoice = voices.find(voice => 
+                voice.lang.toLowerCase().startsWith('en-us') || 
+                voice.lang.toLowerCase().startsWith('en')
+            );
             console.warn("Philippine voice not found. Falling back to default English voice.");
+        } else {
+             console.log("Using Voice:", philippineVoice.name, philippineVoice.lang);
         }
     }
 
-    // Since voices might load asynchronously, we wait for them to change
+    // Must wait for voices to load
     if (speechSynthesis.onvoiceschanged !== undefined) {
         speechSynthesis.onvoiceschanged = setPhilippineVoice;
     }
-    // Call immediately in case voices are already loaded
+    // Call immediately in case voices are already loaded (e.g., Chrome)
     setPhilippineVoice();
 
 
@@ -306,12 +314,13 @@
         // Apply the selected voice if found
         if (philippineVoice) {
             msg.voice = philippineVoice;
-            // Adjust rate and pitch slightly for a more 'local' sounding tone
+            // Adjusted rate for clearer Filipino-English delivery
             msg.pitch = 1; 
-            msg.rate = 0.95; // Slightly slower
+            msg.rate = 0.9; 
         } else {
+             // Default settings if no specific voice is found
              msg.pitch = 1; 
-             msg.rate = 1.1; // Default rate
+             msg.rate = 1.1; 
         }
 
         speechSynthesis.speak(msg);
