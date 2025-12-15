@@ -257,16 +257,17 @@
         // CHECK URL: Ensure the URL is present and looks like a URL (starts with http or https)
         const urlCheck = pictureUrl ? pictureUrl.toLowerCase() : '';
         if (urlCheck.startsWith('http')) {
-             imageHtml = `<img id="student-image" src="${pictureUrl}" alt="photo">`;
+             imageHtml = `<img id="student-image" src="${pictureUrl}" alt="Student Photo">`;
+             // Note: Changed alt text to "Student Photo" for better accessibility
         } else {
              console.warn("No valid picture URL found for display:", pictureUrl);
         }
 
         el.innerHTML = `<div class="icon">${icon}</div>
-                         ${imageHtml}
-                         <div><strong>${action}</strong> Recorded</div>
-                         <div>${name}</div>
-                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
+                        ${imageHtml}
+                        <div><strong>${action}</strong> Recorded</div>
+                        <div>${name}</div>
+                        <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
         const msg = new SpeechSynthesisUtterance(`${name}. ${action} confirmed.`);
@@ -281,6 +282,7 @@
         // Now expecting 5 values: [id, name, section, contact, pictureUrl]
         const [id, name, section, contact, pictureUrl] = details;
         
+        // Minor modification for robust checking, ensuring pictureUrl is handled if undefined
         if (!id || !name || !section) {
              console.error("Invalid QR code format:", details);
              // Ensure the display message is for the end-user
@@ -336,10 +338,14 @@
         // We now require at least 5 values for full detail (ID, Name, Section, Contact, Picture URL)
         // Check for at least ID, Name, and Section (3) to log, but ideally 5 for the picture
         if (details.length >= 3) { 
+            // The details array will contain at least [ID, NAME, SECTION]
+            // JavaScript destructuring handles missing values gracefully (they'll be undefined)
+            // logAttendance handles this by using 'N/A' for contact/pictureUrl if missing.
             logAttendance(details);
         } else {
             console.warn("QR Code data insufficient:", text);
-            displayScanInfo('N/A', 'Data Error', 'Warning', ''); // Pass empty string for pictureUrl
+            // Pass empty string for pictureUrl if data is bad
+            displayScanInfo('N/A', 'Data Error', 'Warning', ''); 
         }
 
         // Delay the next scan to prevent double-scans
