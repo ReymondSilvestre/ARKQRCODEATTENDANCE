@@ -8,6 +8,7 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     
     <style>
+        /* CSS is unchanged and correct */
         :root {
             --primary-color: #007bff; /* Blue */
             --secondary-color: #4CAF50; /* Green */
@@ -247,13 +248,13 @@
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // --- MODIFIED: Includes logic for a fallback image ---
+    // --- MODIFIED: Includes logic for a fallback image and DEBUG LOGGING ---
     function displayScanInfo(id, name, action, pictureUrl) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : "⬅️";
         
         // --- Image Handling Logic ---
-        // You MUST place a file named 'default_student.png' in your 'image' directory
+        // Using the company logo as the fallback, but ideally, this would be 'image/default_student.png'
         const fallbackImageUrl = "image/arklogo.png"; 
         let imageUrl = fallbackImageUrl;
         
@@ -262,11 +263,14 @@
         
         if (urlCheck.startsWith('http')) {
             imageUrl = pictureUrl;
-        } else if (pictureUrl && action !== 'Failed') { 
-            // Only log warning if QR data was scanned but URL was bad/missing
-            console.warn("No valid picture URL found in QR data. Using fallback image.");
+            console.log("Image URL selected: QR Code URL (Starts with http/s).");
+        } else {
+            console.warn(`Image URL check failed. Given URL: [${pictureUrl}]. Using fallback.`);
+            console.log("Image URL selected: Fallback URL.");
         }
-
+        
+        console.log("Final URL used for IMG tag:", imageUrl); // CHECK THIS IN CONSOLE
+        
         // Dynamic HTML for the pop-up
         const imageHtml = action === 'Failed' 
             ? '' // Don't show an image on error
@@ -342,7 +346,7 @@
     }
 
 
-    /* --- Scanner Initialization (MODIFIED) --- */
+    /* --- Scanner Initialization (MODIFIED FOR DEBUG) --- */
     function onScanSuccess(text) {
         if (scanning) return;
         scanning = true;
@@ -350,6 +354,10 @@
         // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
         const details = text.split('|').map(s => s.trim()); 
         
+        console.log("--- QR Scan Detected ---");
+        console.log("Raw QR Data:", text);
+        console.log("Parsed Details:", details); // CHECK THIS LINE! (5th element should be the URL)
+
         // We now require at least 3 values (ID, Name, Section)
         if (details.length >= 3) { 
             logAttendance(details);
