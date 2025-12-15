@@ -24,7 +24,7 @@
             color: #343a40;
         }
 
-        /* --- Header Styling (Unchanged) --- */
+        /* --- Header Styling --- */
         .header {
             text-align: center;
             margin-bottom: 30px;
@@ -56,12 +56,12 @@
             margin-top: 5px;
         }
 
-        /* --- Main Layout (MODIFIED) --- */
+        /* --- Main Layout --- */
         .container {
             display: flex;
-            flex-direction: column; /* Changed to column for vertical stacking */
+            flex-direction: column;
             gap: 20px;
-            max-width: 800px; /* Reduced max width to center the scanner */
+            max-width: 800px;
             margin: 0 auto;
         }
         .scanner-container, .report-container {
@@ -72,11 +72,11 @@
         }
         .scanner-container { 
             flex: 1; 
-            min-width: 100%; /* Take full width of container */
+            min-width: 100%;
             max-width: 100%;
         }
         .report-container { 
-            flex: 0; /* Shrink to fit content */
+            flex: 0;
         }
         
         /* --- QR Reader & Buttons --- */
@@ -102,7 +102,7 @@
             background-color: #0056b3;
         }
 
-        /* --- Table Styling (Unchanged) --- */
+        /* --- Table Styling --- */
         h2 {
             border-bottom: 2px solid var(--primary-color);
             padding-bottom: 10px;
@@ -125,7 +125,7 @@
             font-weight: 600;
         }
         
-        /* --- Scan Pop-up Display (MODIFIED) --- */
+        /* --- Scan Pop-up Display --- */
         #scan-display {
             position: fixed; 
             top: 50%; 
@@ -153,12 +153,10 @@
             margin: 5px 0 10px;
         }
 
-        /* The #student-image styling has been removed as requested */
-
-        /* --- Media Query for Responsiveness (Updated) --- */
+        /* --- Media Query for Responsiveness --- */
         @media (max-width: 850px) {
             .container {
-                max-width: 95%; /* Allow full width on smaller screens */
+                max-width: 95%;
             }
             .company-name {
                 font-size: 28px;
@@ -212,17 +210,16 @@
     // IMPORTANT: Replace this with YOUR Google Apps Script Web App URL
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
     
-    // --- NEW: Global variable for the selected Philippine voice ---
+    // --- Global variable for the selected Philippine voice (or fallback) ---
     let philippineVoice = null;
 
     /**
-     * Attempts to find a Philippine-related voice on the system.
+     * Attempts to find a Philippine-related voice on the system for text-to-speech.
      */
     function setPhilippineVoice() {
         if (philippineVoice) return; // Already set
         
         const voices = speechSynthesis.getVoices();
-        const preferredLang = ['fil', 'tl', 'en-ph', 'en-us', 'en']; // Filipino, Tagalog, English (PH), English (US), Generic English
         
         // 1. Try to find a voice explicitly tagged with 'fil' or 'tl' (Tagalog/Filipino)
         philippineVoice = voices.find(voice => 
@@ -246,7 +243,7 @@
         }
     }
 
-    // Since voices might load asynchronously, we need to wait for them
+    // Since voices might load asynchronously, we wait for them to change
     if (speechSynthesis.onvoiceschanged !== undefined) {
         speechSynthesis.onvoiceschanged = setPhilippineVoice;
     }
@@ -269,65 +266,70 @@
     function getCurrentTime() { return new Date().toString(); }
     function getTodayDate() { return formatDateOnly(new Date()); }
 
+    /**
+     * Determines if the next action should be "Time In" or "Time Out"
+     */
     function getActionType(id) {
         const logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         const today = getTodayDate();
+        // Filter for today's log entries for this specific student
         const todayLogs = logs.filter(e => e.studentID === id && e.date === today);
         
         if (todayLogs.length === 0) {
             return "Time In"; // First entry of the day
         }
+        // If the last action was 'Time Out', the next is 'Time In'. Otherwise, it's 'Time Out'.
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // --- MODIFIED: Added voice selection logic to the function ---
-    function displayScanInfo(id, name, action, pictureUrl) {
+    /**
+     * Displays the pop-up and triggers the Text-to-Speech announcement.
+     */
+    function displayScanInfo(id, name, action) {
         const el = document.getElementById("scan-display");
-        const icon = action === "Time In" ? "➡️" : "⬅️";
+        const icon = action === "Time In" ? "➡️" : (action === "Time Out" ? "⬅️" : "❌");
         
         const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
 
-        // The HTML now only includes the icon, text, name, and ID.
+        // Update the display pop-up content
         el.innerHTML = `<div class="icon" style="color:${action === 'Failed' ? '#dc3545' : 'var(--secondary-color)'};">${icon}</div>
                         <div><strong>${actionText}</strong></div>
                         <div>${name}</div>
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        // --- VOICE LOGIC START ---
+        // --- TEXT-TO-SPEECH ANNOUNCEMENT ---
         const speechName = name === 'Invalid QR Code' ? 'Attention' : name;
         const speechAction = action === 'Failed' ? 'failed' : `${action} confirmed`;
         const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
         
-        // Attempt to apply the selected voice, if found
+        // Apply the selected voice if found
         if (philippineVoice) {
             msg.voice = philippineVoice;
-            // Adjust rate and pitch slightly for a more 'local' sounding English/Taglish tone
+            // Adjust rate and pitch slightly for a more 'local' sounding tone
             msg.pitch = 1; 
-            msg.rate = 0.95; 
+            msg.rate = 0.95; // Slightly slower
         } else {
              msg.pitch = 1; 
-             msg.rate = 1.1; // Default rate if no specific voice is set
+             msg.rate = 1.1; // Default rate
         }
 
         speechSynthesis.speak(msg);
-        // --- VOICE LOGIC END ---
+        // --- END TTS ---
         
         setTimeout(() => el.style.display = "none", 2500);
     }
     // -----------------------------------------------------------------
 
 
-    /* --- Core Logging Logic (UNCHANGED) --- */
+    /* --- Core Logging Logic --- */
     function logAttendance(details) {
-        // Expecting 5 values: [id, name, section, contact, pictureUrl]
+        // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
         const [id, name, section, contact, pictureUrl] = details;
-        
         
         if (!id || !name || !section) {
             console.error("Invalid QR code format:", details);
-            // Ensure the display message is for the end-user
-            displayScanInfo('N/A', 'Invalid QR Code', 'Failed', '');
+            displayScanInfo('N/A', 'Invalid QR Code', 'Failed');
             return;
         }
 
@@ -340,7 +342,7 @@
             studentName: name,
             studSection: section,
             studContact: contact || 'N/A', 
-            studPictureUrl: pictureUrl || 'N/A', // Store the URL as well
+            studPictureUrl: pictureUrl || 'N/A',
             time: timestamp,
             date: date,
             action: action
@@ -358,31 +360,29 @@
             body: JSON.stringify(entry),
             headers: { "Content-Type": "application/json" }
         })
-        .then(response => console.log("Sheet request sent (Check network for details)."))
-        .catch(err => console.error("Error sending to sheet (This is expected with 'no-cors' mode):", err));
+        .then(response => console.log("Sheet request sent."))
+        .catch(err => console.error("Error sending to sheet (Expected with 'no-cors'):", err));
 
         // 3. Update UI and provide feedback
-        // Pass the pictureUrl, but it is no longer used in displayScanInfo
-        displayScanInfo(id, name, action, pictureUrl); 
+        displayScanInfo(id, name, action); 
         refreshLogs();
     }
 
 
-    /* --- Scanner Initialization (UNCHANGED) --- */
+    /* --- Scanner Initialization --- */
     function onScanSuccess(text) {
         if (scanning) return;
         scanning = true;
         
-        // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
+        // Split data by pipe (|) delimiter
         const details = text.split('|').map(s => s.trim()); 
         
-        // We now require at least 3 values (ID, Name, Section)
+        // Require at least 3 values (ID, Name, Section)
         if (details.length >= 3) { 
             logAttendance(details);
         } else {
             console.warn("QR Code data insufficient:", text);
-            // Pass minimal info for error display
-            displayScanInfo('N/A', 'Invalid QR Code', 'Failed', ''); 
+            displayScanInfo('N/A', 'Invalid QR Code', 'Failed'); 
         }
 
         // Delay the next scan to prevent double-scans
@@ -408,13 +408,13 @@
     }
 
 
-    /* --- Reporting and Local Storage Management (UNCHANGED) --- */
+    /* --- Reporting and Local Storage Management --- */
 
     function refreshLogs() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         const now = new Date();
 
-        // 7-Day Cleanup: Filter out logs older than 7 days from local storage
+        // 7-Day Cleanup: Filter out logs older than 7 days from local storage (must be done before pairing)
         logs = logs.filter(entry => {
             const entryDate = new Date(entry.date);
             const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
@@ -426,11 +426,12 @@
     }
 
     /**
-     * Groups Time In and Time Out entries into single attendance records.
+     * Groups Time In and Time Out entries into single attendance records for the table and Excel.
      */
     function pairEntries(entries) {
         const pairs = [], grouped = {};
         
+        // Group entries by Student ID and Date
         entries.forEach(e => {
             const key = `${e.studentID}_${e.date}`;
             if (!grouped[key]) grouped[key] = [];
@@ -438,6 +439,7 @@
         });
 
         Object.values(grouped).forEach(g => {
+            // Sort by time to process in order
             g.sort((a,b) => new Date(a.time) - new Date(b.time));
             
             let i = 0;
@@ -452,10 +454,11 @@
 
                 if (curr.action === "Time In") {
                     let out = null;
+                    // Look for the next 'Time Out' for the same day
                     for (let j = i + 1; j < g.length; j++) {
                         if (g[j].action === "Time Out") { 
                             out = g[j]; 
-                            i = j; 
+                            i = j; // Skip past the 'Time Out' entry
                             break; 
                         }
                     }
@@ -467,7 +470,7 @@
                     });
                     
                 } else if (curr.action === "Time Out") {
-                    // Handle standalone Time Out (unpaired)
+                    // Handle standalone Time Out (unpaired, logged alone)
                     pairs.push({
                         ...baseRecord,
                         timeIn: "-", 
@@ -484,15 +487,14 @@
         const tbody = document.getElementById("report-body");
         tbody.innerHTML = "";
 
-        // Sort by the latest time (either Time In or Time Out)
+        // Sort by the latest time
         const sorted = paired.sort((a, b) => {
-            // This sorting logic correctly identifies the most recent log
             const timeA = new Date(a.date + ' ' + (a.timeOut !== '-' ? a.timeOut : a.timeIn));
             const timeB = new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : a.timeIn));
             return timeB - timeA;
         });
 
-        // MODIFIED: Display only the top 2 recent logs
+        // Display only the top 2 recent logs
         const recent = sorted.slice(0, 2); 
 
         if (recent.length === 0) {
@@ -512,10 +514,10 @@
         });
     }
 
-    /* --- Excel Download Logic (UNCHANGED) --- */
-
+    /* --- Excel Download Logic --- */
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+        
         if (logs.length === 0) {
             alert("No attendance data to download.");
             return;
@@ -547,20 +549,21 @@
             });
         });
 
-        // Create a worksheet per day
+        // Create a worksheet per day (sorted by date, newest first)
         Object.keys(byDate).sort().reverse().forEach(date => { 
             const ws = XLSX.utils.json_to_sheet(byDate[date]);
+            // Use M-D format for sheet name (e.g., "12-15")
             XLSX.utils.book_append_sheet(wb, ws, date.slice(5)); 
         });
         
-        // Add a 'Raw Data' sheet
+        // Add a 'Raw Data' sheet containing all recorded entries
         const rawData = logs.map(e => ({
             "Timestamp": new Date(e.time).toLocaleString(),
             "Student ID": e.studentID,
             "Name": e.studentName,
             "Section": e.studSection,
-            "Contact": e.studContact, // Include contact in raw data
-            "Picture URL": e.studPictureUrl, // Include picture URL in raw data
+            "Contact": e.studContact,
+            "Picture URL": e.studPictureUrl,
             "Action": e.action,
         }));
         const wsRaw = XLSX.utils.json_to_sheet(rawData);
