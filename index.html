@@ -140,7 +140,7 @@
             display: none; 
             text-align: center; 
             font-size: 20px;
-            min-width: 300px; /* Ensure space for the image */
+            min-width: 300px;
         }
         #scan-display .icon {
             font-size: 48px;
@@ -152,16 +152,8 @@
             display: block;
             margin: 5px 0 10px;
         }
-        /* New styling for the student picture */
-        #student-image {
-            width: 120px; 
-            height: 120px;
-            object-fit: cover;
-            border-radius: 50%;
-            margin: 10px auto;
-            border: 3px solid var(--primary-color);
-            display: block;
-        }
+
+        /* The #student-image styling has been removed as requested */
 
         /* --- Media Query for Responsiveness (Updated) --- */
         @media (max-width: 850px) {
@@ -247,35 +239,17 @@
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // --- MODIFIED: Includes logic for a fallback image ---
+    // --- MODIFIED: REMOVED student photo logic/HTML from this function ---
     function displayScanInfo(id, name, action, pictureUrl) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : "⬅️";
         
-        // --- Image Handling Logic ---
-        // You MUST place a file named 'default_student.png' in your 'image' directory
-        const fallbackImageUrl = "image/default_student.png"; 
-        let imageUrl = fallbackImageUrl;
-        
-        // Validate URL: Must be present and start with http or https
-        const urlCheck = (pictureUrl || '').toLowerCase();
-        
-        if (urlCheck.startsWith('http')) {
-            imageUrl = pictureUrl;
-        } else if (pictureUrl && action !== 'Failed') { 
-            // Only log warning if QR data was scanned but URL was bad/missing
-            console.warn("No valid picture URL found in QR data. Using fallback image.");
-        }
+        // **PHOTO LOGIC REMOVED**
 
-        // Dynamic HTML for the pop-up
-        const imageHtml = action === 'Failed' 
-            ? '' // Don't show an image on error
-            : `<img id="student-image" src="${imageUrl}" alt="${name}'s Photo">`;
-        
         const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
 
+        // The HTML now only includes the icon, text, name, and ID.
         el.innerHTML = `<div class="icon" style="color:${action === 'Failed' ? '#dc3545' : 'var(--secondary-color)'};">${icon}</div>
-                        ${imageHtml}
                         <div><strong>${actionText}</strong></div>
                         <div>${name}</div>
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
@@ -292,7 +266,7 @@
     // -----------------------------------------------------------------
 
 
-    /* --- Core Logging Logic (MODIFIED) --- */
+    /* --- Core Logging Logic (UNCHANGED) --- */
     function logAttendance(details) {
         // Expecting 5 values: [id, name, section, contact, pictureUrl]
         const [id, name, section, contact, pictureUrl] = details;
@@ -336,13 +310,13 @@
         .catch(err => console.error("Error sending to sheet (This is expected with 'no-cors' mode):", err));
 
         // 3. Update UI and provide feedback
-        // Pass the pictureUrl to the display function
+        // Pass the pictureUrl, but it is no longer used in displayScanInfo
         displayScanInfo(id, name, action, pictureUrl); 
         refreshLogs();
     }
 
 
-    /* --- Scanner Initialization (MODIFIED) --- */
+    /* --- Scanner Initialization (UNCHANGED) --- */
     function onScanSuccess(text) {
         if (scanning) return;
         scanning = true;
@@ -382,7 +356,7 @@
     }
 
 
-    /* --- Reporting and Local Storage Management --- */
+    /* --- Reporting and Local Storage Management (UNCHANGED) --- */
 
     function refreshLogs() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
@@ -486,7 +460,7 @@
         });
     }
 
-    /* --- Excel Download Logic --- */
+    /* --- Excel Download Logic (UNCHANGED) --- */
 
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
