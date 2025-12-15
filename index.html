@@ -1,220 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ARK - QR Code Attendance Scanner</title>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-    
-    <style>
-        /* --- CSS is Unchanged but included for completeness --- */
-        :root {
-            --primary-color: #007bff; /* Blue */
-            --secondary-color: #4CAF50; /* Green */
-            --background-color: #f8f9fa;
-            --card-background: white;
-            --border-color: #dee2e6;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--background-color);
-            padding: 20px;
-            margin: 0;
-            color: #343a40;
-        }
-
-        /* --- Header Styling --- */
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            background: var(--card-background);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        }
-        .header-flex {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
-        .logo {
-            max-width: 80px;
-            height: auto;
-        }
-        .company-name {
-            font-size: 36px;
-            color: #212529;
-            margin: 0;
-            font-weight: 600;
-        }
-        .company-address {
-            font-size: 16px;
-            color: #6c757d;
-            margin-top: 5px;
-        }
-
-        /* --- Main Layout --- */
-        .container {
-            display: flex;
-            flex-direction: column; 
-            gap: 20px;
-            max-width: 800px; 
-            margin: 0 auto;
-        }
-        .scanner-container, .report-container {
-            background: var(--card-background);
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        .scanner-container { 
-            flex: 1; 
-            min-width: 100%; 
-            max-width: 100%;
-        }
-        .report-container { 
-            flex: 0; 
-        }
-        
-        /* --- QR Reader & Buttons --- */
-        #qr-reader { 
-            width: 100%; 
-            margin-bottom: 20px; 
-            border: 2px solid var(--border-color);
-            border-radius: 5px;
-        }
-        
-        button { 
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            margin-top: 15px;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-
-        /* --- Table Styling --- */
-        h2 {
-            border-bottom: 2px solid var(--primary-color);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-            color: #212529;
-        }
-        table { 
-            border-collapse: collapse; 
-            width: 100%; 
-            margin-top: 15px; 
-            font-size: 14px; 
-        }
-        th, td { 
-            border: 1px solid var(--border-color); 
-            padding: 12px; 
-            text-align: left; 
-        }
-        th { 
-            background-color: #e9ecef; 
-            font-weight: 600;
-        }
-        
-        /* --- Scan Pop-up Display --- */
-        #scan-display {
-            position: fixed; 
-            top: 50%; 
-            left: 50%; 
-            transform: translate(-50%, -50%);
-            background: var(--card-background); 
-            border: 3px solid var(--secondary-color); 
-            border-radius: 15px;
-            padding: 30px 40px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            z-index: 9999; 
-            display: none; 
-            text-align: center; 
-            font-size: 20px;
-            min-width: 300px; 
-        }
-        #scan-display .icon {
-            font-size: 48px;
-            color: var(--secondary-color);
-            margin-bottom: 10px;
-        }
-        #scan-display strong {
-            font-size: 28px;
-            display: block;
-            margin: 5px 0 10px;
-        }
-        /* New styling for the student picture */
-        #student-image {
-            width: 120px; 
-            height: 120px;
-            object-fit: cover;
-            border-radius: 50%;
-            margin: 10px auto;
-            border: 3px solid var(--primary-color);
-            display: block;
-        }
-
-        /* --- Media Query for Responsiveness --- */
-        @media (max-width: 850px) {
-            .container {
-                max-width: 95%; 
-            }
-            .company-name {
-                font-size: 28px;
-            }
-        }
-    </style>
-</head>
-<body>
-
-<div class="header">
-    <div class="header-flex">
-        <img src="image/arklogo.png" alt="Company Logo" class="logo"> 
-        <div>
-            <h1 class="company-name">ARK Technological Institute Education System Inc.</h1>
-            <h3 class="company-address">J-Seven Bldg. Magallanes Cor. Granja St. Brgy. 7 Lucena City.</h3>
-        </div>
-    </div>
-</div>
-
-<div class="container">
-    <section class="scanner-container">
-        <h2>📷 QR Code Scanner</h2>
-        <div id="qr-reader"></div>
-        <p id="camera-status" style="text-align:center; color:gray;"></p>
-    </section>
-    
-    <section class="report-container">
-        <h2>📋 Recent Attendance Log</h2>
-        <table id="attendanceTable">
-            <thead>
-                <tr>
-                    <th>Student ID</th>
-                    <th>Name</th>
-                    <th>Section</th>
-                    <th>Time In</th>
-                    <th>Time Out</th>
-                    <th>Date</th>
-                </tr>
-            </thead>
-            <tbody id="report-body"></tbody>
-        </table>
-        <button onclick="downloadExcel()">⬇️ Download Full Excel Log</button>
-    </section>
-</div>
-
-<div id="scan-display"></div>
-
 <script>
     const html5QrCode = new Html5Qrcode("qr-reader");
     let scanning = false;
@@ -225,8 +8,13 @@
     // Make sure this file exists locally (e.g., in a folder named 'image')
     const FALLBACK_IMAGE_URL = "image/arklogo.png"; 
 
+    // ** NEW CONFIGURATION **
+    // 1. Replace 'YOUR_USER' and 'YOUR_REPO' with your actual GitHub username and repository name.
+    // 2. 'main' is the branch name. 'images' is your folder name.
+    // 3. This URL must end with a slash ('/')
+    const GITHUB_IMAGE_BASE_URL = "https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/images/";
 
-    /* --- Utility Functions --- */
+    /* --- Utility Functions (UNCHANGED) --- */
     function formatTimeOnly(str) {
         const date = new Date(str);
         return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
@@ -252,13 +40,12 @@
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    // --- REVISED: Includes strict image validation and onerror handler ---
+    // --- displayScanInfo (SLIGHTLY REVISED FOR CLARITY) ---
     function displayScanInfo(id, name, action, pictureUrl) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : "⬅️";
         
-        // 1. Determine the image URL to attempt to load
-        // Only use the QR code URL if it looks like a valid http/s link
+        // Use the generated pictureUrl or the fallback
         const isValidUrl = (pictureUrl || '').toLowerCase().startsWith('http');
         const imageUrl = isValidUrl ? pictureUrl : FALLBACK_IMAGE_URL;
         
@@ -266,10 +53,10 @@
         
         const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
 
-        // 2. Dynamic HTML for the pop-up
+        // Dynamic HTML for the pop-up
         const imageHtml = action === 'Failed' 
-            ? '' // Don't show an image on error
-            // CRITICAL FIX: Added onerror to fall back to the local image if the network URL fails
+            ? ''
+            // NOTE: onerror fallback is still critical for broken image links
             : `<img id="student-image" src="${imageUrl}" alt="${name}'s Photo" 
                    onerror="this.onerror=null; this.src='${FALLBACK_IMAGE_URL}';"
                    title="${isValidUrl ? 'External Image' : 'Fallback Image'}">`;
@@ -281,22 +68,22 @@
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        // 3. Text-to-Speech Feedback
+        // Text-to-Speech Feedback
         const speechName = name === 'Invalid QR Code' ? 'Attention' : name;
         const speechAction = action === 'Failed' ? 'failed' : `${action} confirmed`;
         const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
         msg.pitch = 1; msg.rate = 1.1;
         speechSynthesis.speak(msg);
         
-        // 4. Auto-hide Pop-up
+        // Auto-hide Pop-up
         setTimeout(() => el.style.display = "none", 2500);
     }
 
 
-    /* --- Core Logging Logic (MODIFIED) --- */
+    /* --- Core Logging Logic (MAJOR CHANGES) --- */
     function logAttendance(details) {
-        // Expecting 5 values: [id, name, section, contact, pictureUrl]
-        const [id, name, section, contact, pictureUrl] = details;
+        // ** NOW EXPECTING ONLY 4 VALUES: [id, name, section, contact] **
+        const [id, name, section, contact] = details; 
         
         // Ensure core data is present
         if (!id || !name || !section) {
@@ -305,10 +92,9 @@
             return;
         }
         
-        // Clean up pictureUrl (use 'N/A' if missing or not a valid http/s URL)
-        const finalPictureUrl = (pictureUrl || '').toLowerCase().startsWith('http') 
-            ? pictureUrl 
-            : 'N/A';
+        // ** GENERATE IMAGE URL DYNAMICALLY **
+        // Assumes image name is {STUDENT_ID}.jpg
+        const finalPictureUrl = `${GITHUB_IMAGE_BASE_URL}${id}.jpg`;
 
         const action = getActionType(id);
         const timestamp = getCurrentTime();
@@ -319,20 +105,20 @@
             studentName: name,
             studSection: section,
             studContact: contact || 'N/A', 
-            studPictureUrl: finalPictureUrl, // Store the validated URL
+            studPictureUrl: finalPictureUrl, // Store the GENERATED URL
             time: timestamp,
             date: date,
             action: action
         };
         
-        console.log(`[logAttendance] Processing scan. Action: ${action}, Picture URL: ${finalPictureUrl}`);
+        console.log(`[logAttendance] Processing scan. Action: ${action}, Generated Picture URL: ${finalPictureUrl}`);
 
         // 1. Save to localStorage
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         logs.push(entry);
         localStorage.setItem("attendance", JSON.stringify(logs));
 
-        // 2. Send to Google Sheet Web App
+        // 2. Send to Google Sheet Web App (using the generated image URL)
         fetch(GOOGLE_SHEET_URL, {
             method: "POST",
             mode: 'no-cors',
@@ -343,30 +129,30 @@
         .catch(err => console.error("Error sending to sheet (This is expected with 'no-cors' mode):", err));
 
         // 3. Update UI and provide feedback
-        // Pass the validated pictureUrl to the display function
+        // Pass the generated pictureUrl to the display function
         displayScanInfo(id, name, action, finalPictureUrl); 
         refreshLogs();
     }
 
 
-    /* --- Scanner Initialization (MODIFIED FOR DEBUG) --- */
+    /* --- Scanner Initialization (MAJOR CHANGES) --- */
     function onScanSuccess(text) {
         if (scanning) return;
         scanning = true;
         
-        // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
-        // The data must be in this exact order separated by the '|' symbol.
+        // ** NEW EXPECTED DATA: ID|NAME|SECTION|CONTACT **
+        // NOTE: The PICTURE_URL (E2) is NO LONGER expected here.
         const details = text.split('|').map(s => s.trim()); 
         
-        console.log("--- QR Scan Detected ---");
+        console.log("--- QR Scan Detected (4 fields expected) ---");
         console.log("Raw QR Data:", text);
-        console.log("Parsed Details (Index 4 should be IMAGE_URL):", details);
+        console.log("Parsed Details:", details);
 
-        // We require at least 3 values (ID, Name, Section)
-        if (details.length >= 3) { 
+        // We require exactly 4 values (ID, Name, Section, Contact)
+        if (details.length >= 4) { 
             logAttendance(details);
         } else {
-            console.warn("QR Code data insufficient:", text);
+            console.warn("QR Code data insufficient. Expected 4 fields.", text);
             // Pass minimal info for error display
             displayScanInfo('N/A', 'Invalid QR Code', 'Failed', ''); 
         }
@@ -395,7 +181,7 @@
     }
 
 
-    /* --- Reporting and Local Storage Management --- */
+    /* --- Reporting and Local Storage Management (UNCHANGED) --- */
 
     function refreshLogs() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
@@ -498,7 +284,7 @@
         });
     }
 
-    /* --- Excel Download Logic --- */
+    /* --- Excel Download Logic (SLIGHTLY REVISED TO REFLECT 4-FIELD SCAN) --- */
 
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
@@ -546,7 +332,7 @@
             "Name": e.studentName,
             "Section": e.studSection,
             "Contact": e.studContact, 
-            "Picture URL": e.studPictureUrl, 
+            "Picture URL": e.studPictureUrl, // This will be the dynamically generated GitHub URL
             "Action": e.action,
         }));
         const wsRaw = XLSX.utils.json_to_sheet(rawData);
@@ -561,5 +347,3 @@
         refreshLogs();
     });
 </script>
-</body>
-</html>
