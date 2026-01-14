@@ -9,8 +9,8 @@
     
     <style>
         :root {
-            --primary-color: #007bff; /* Blue */
-            --secondary-color: #4CAF50; /* Green */
+            --primary-color: #007bff;
+            --secondary-color: #4CAF50;
             --background-color: #f8f9fa;
             --card-background: white;
             --border-color: #dee2e6;
@@ -24,7 +24,6 @@
             color: #343a40;
         }
 
-        /* --- Header Styling --- */
         .header {
             text-align: center;
             margin-bottom: 30px;
@@ -56,7 +55,6 @@
             margin-top: 5px;
         }
 
-        /* --- Main Layout --- */
         .container {
             display: flex;
             flex-direction: column;
@@ -70,21 +68,13 @@
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
-        .scanner-container { 
-            flex: 1; 
-            min-width: 100%;
-            max-width: 100%;
-        }
-        .report-container { 
-            flex: 0;
-        }
-        
-        /* --- QR Reader & Buttons --- */
+        .scanner-container { flex: 1; min-width: 100%; max-width: 100%; }
         #qr-reader { 
             width: 100%; 
             margin-bottom: 20px; 
             border: 2px solid var(--border-color);
             border-radius: 5px;
+            overflow: hidden; /* Ensures camera doesn't bleed out */
         }
         
         button { 
@@ -98,34 +88,12 @@
             transition: background-color 0.3s;
             margin-top: 15px;
         }
-        button:hover {
-            background-color: #0056b3;
-        }
+        button:hover { background-color: #0056b3; }
 
-        /* --- Table Styling --- */
-        h2 {
-            border-bottom: 2px solid var(--primary-color);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-            color: #212529;
-        }
-        table { 
-            border-collapse: collapse; 
-            width: 100%; 
-            margin-top: 15px; 
-            font-size: 14px; 
-        }
-        th, td { 
-            border: 1px solid var(--border-color); 
-            padding: 12px; 
-            text-align: left; 
-        }
-        th { 
-            background-color: #e9ecef; 
-            font-weight: 600;
-        }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 14px; }
+        th, td { border: 1px solid var(--border-color); padding: 12px; text-align: left; }
+        th { background-color: #e9ecef; font-weight: 600; }
         
-        /* --- Scan Pop-up Display --- */
         #scan-display {
             position: fixed; 
             top: 50%; 
@@ -142,25 +110,12 @@
             font-size: 20px;
             min-width: 300px;
         }
-        #scan-display .icon {
-            font-size: 48px;
-            color: var(--secondary-color);
-            margin-bottom: 10px;
-        }
-        #scan-display strong {
-            font-size: 28px;
-            display: block;
-            margin: 5px 0 10px;
-        }
+        #scan-display .icon { font-size: 48px; margin-bottom: 10px; }
+        #scan-display strong { font-size: 28px; display: block; margin: 5px 0 10px; }
 
-        /* --- Media Query for Responsiveness --- */
         @media (max-width: 850px) {
-            .container {
-                max-width: 95%;
-            }
-            .company-name {
-                font-size: 28px;
-            }
+            .container { max-width: 95%; }
+            .company-name { font-size: 28px; }
         }
     </style>
 </head>
@@ -207,137 +162,75 @@
 <script>
     const html5QrCode = new Html5Qrcode("qr-reader");
     let scanning = false;
-    // IMPORTANT: Replace this with YOUR Google Apps Script Web App URL
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
     
-    // --- Global variable for the selected Philippine voice (or fallback) ---
     let philippineVoice = null;
 
-    /**
-     * Attempts to find the most suitable Philippine-localized voice.
-     * Voice availability depends entirely on the operating system and browser.
-     */
     function setPhilippineVoice() {
-        if (philippineVoice) return; // Already set
-        
         const voices = speechSynthesis.getVoices();
-        
-        // --- 1. Top Priority: Specific Tagalog/Filipino language codes ---
-        philippineVoice = voices.find(voice => 
-            voice.lang.toLowerCase().includes('fil-ph') || 
-            voice.lang.toLowerCase().includes('tl-ph') || 
-            voice.lang.toLowerCase().includes('fil') || 
-            voice.lang.toLowerCase().includes('tl')
-        );
-
-        if (!philippineVoice) {
-             // --- 2. Second Priority: Names containing relevant keywords ---
-            philippineVoice = voices.find(voice => 
-                voice.name.toLowerCase().includes('filipino') || 
-                voice.name.toLowerCase().includes('tagalog') || 
-                voice.name.toLowerCase().includes('philippines')
-            );
-        }
-
-        if (!philippineVoice) {
-            // --- 3. Fallback: Generic English voice ---
-            philippineVoice = voices.find(voice => 
-                voice.lang.toLowerCase().startsWith('en-us') || 
-                voice.lang.toLowerCase().startsWith('en')
-            );
-            console.warn("Philippine voice not found. Falling back to default English voice.");
-        } else {
-             console.log("Using Voice:", philippineVoice.name, philippineVoice.lang);
-        }
+        philippineVoice = voices.find(v => v.lang.includes('ph') || v.lang.includes('PH')) || 
+                         voices.find(v => v.name.includes('Google US English'));
     }
 
-    // Must wait for voices to load
     if (speechSynthesis.onvoiceschanged !== undefined) {
         speechSynthesis.onvoiceschanged = setPhilippineVoice;
     }
-    // Call immediately in case voices are already loaded (e.g., Chrome)
     setPhilippineVoice();
 
+    // Enhances name reading (removes dots, handles common abbreviations)
+    function cleanNameForSpeech(name) {
+        return name.replace(/\./g, '').trim();
+    }
 
-    /* --- Utility Functions --- */
     function formatTimeOnly(str) {
         const date = new Date(str);
         return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
     }
 
     function formatDateOnly(dateObj) {
-        return dateObj.getFullYear() + '-' + 
-                String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + 
-                String(dateObj.getDate()).padStart(2, '0');
+        return dateObj.getFullYear() + '-' + String(dateObj.getMonth() + 1).padStart(2, '0') + '-' + String(dateObj.getDate()).padStart(2, '0');
     }
 
     function getCurrentTime() { return new Date().toString(); }
     function getTodayDate() { return formatDateOnly(new Date()); }
 
-    /**
-     * Determines if the next action should be "Time In" or "Time Out"
-     */
     function getActionType(id) {
         const logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         const today = getTodayDate();
-        // Filter for today's log entries for this specific student
         const todayLogs = logs.filter(e => e.studentID === id && e.date === today);
-        
-        if (todayLogs.length === 0) {
-            return "Time In"; // First entry of the day
-        }
-        // If the last action was 'Time Out', the next is 'Time In'. Otherwise, it's 'Time Out'.
+        if (todayLogs.length === 0) return "Time In";
         return todayLogs[todayLogs.length - 1].action === "Time Out" ? "Time In" : "Time Out";
     }
 
-    /**
-     * Displays the pop-up and triggers the Text-to-Speech announcement.
-     */
     function displayScanInfo(id, name, action) {
         const el = document.getElementById("scan-display");
         const icon = action === "Time In" ? "➡️" : (action === "Time Out" ? "⬅️" : "❌");
-        
+        const actionColor = action === 'Failed' ? '#dc3545' : 'var(--secondary-color)';
         const actionText = action === 'Failed' ? 'Scan Failed' : `${action} Recorded`;
 
-        // Update the display pop-up content
-        el.innerHTML = `<div class="icon" style="color:${action === 'Failed' ? '#dc3545' : 'var(--secondary-color)'};">${icon}</div>
+        el.innerHTML = `<div class="icon" style="color:${actionColor};">${icon}</div>
                         <div><strong>${actionText}</strong></div>
                         <div>${name}</div>
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        // --- TEXT-TO-SPEECH ANNOUNCEMENT ---
-        const speechName = name === 'Invalid QR Code' ? 'Attention' : name;
-        const speechAction = action === 'Failed' ? 'failed' : `${action} confirmed`;
+        // --- IMPROVED TEXT-TO-SPEECH ---
+        speechSynthesis.cancel(); // Stop any current speaking
+        const speechName = (action === 'Failed' || name === 'Invalid QR Code') ? 'Attention' : cleanNameForSpeech(name);
+        const speechAction = action === 'Failed' ? 'Scan failed' : `${action} confirmed`;
         const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
         
-        // Apply the selected voice if found
-        if (philippineVoice) {
-            msg.voice = philippineVoice;
-            // Adjusted rate for clearer Filipino-English delivery
-            msg.pitch = 1; 
-            msg.rate = 0.9; 
-        } else {
-             // Default settings if no specific voice is found
-             msg.pitch = 1; 
-             msg.rate = 1.1; 
-        }
-
+        if (philippineVoice) msg.voice = philippineVoice;
+        msg.pitch = 1;
+        msg.rate = 0.85; // Slightly slower for better clarity in noisy environments
         speechSynthesis.speak(msg);
-        // --- END TTS ---
         
-        setTimeout(() => el.style.display = "none", 2500);
+        setTimeout(() => el.style.display = "none", 3000);
     }
-    // -----------------------------------------------------------------
 
-
-    /* --- Core Logging Logic --- */
     function logAttendance(details) {
-        // Expecting data in the format: ID|NAME|SECTION|CONTACT|PICTURE_URL
         const [id, name, section, contact, pictureUrl] = details;
-        
         if (!id || !name || !section) {
-            console.error("Invalid QR code format:", details);
             displayScanInfo('N/A', 'Invalid QR Code', 'Failed');
             return;
         }
@@ -357,90 +250,76 @@
             action: action
         };
 
-        // 1. Save to localStorage
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         logs.push(entry);
         localStorage.setItem("attendance", JSON.stringify(logs));
 
-        // 2. Send to Google Sheet Web App
         fetch(GOOGLE_SHEET_URL, {
             method: "POST",
             mode: 'no-cors',
             body: JSON.stringify(entry),
             headers: { "Content-Type": "application/json" }
-        })
-        .then(response => console.log("Sheet request sent."))
-        .catch(err => console.error("Error sending to sheet (Expected with 'no-cors'):", err));
+        });
 
-        // 3. Update UI and provide feedback
         displayScanInfo(id, name, action); 
         refreshLogs();
     }
 
-
-    /* --- Scanner Initialization --- */
     function onScanSuccess(text) {
         if (scanning) return;
         scanning = true;
         
-        // Split data by pipe (|) delimiter
         const details = text.split('|').map(s => s.trim()); 
-        
-        // Require at least 3 values (ID, Name, Section)
         if (details.length >= 3) { 
             logAttendance(details);
         } else {
-            console.warn("QR Code data insufficient:", text);
             displayScanInfo('N/A', 'Invalid QR Code', 'Failed'); 
         }
 
-        // Delay the next scan to prevent double-scans
-        setTimeout(() => scanning = false, 1500);
+        // --- UPDATED DELAY: 5 SECONDS ---
+        setTimeout(() => { scanning = false; }, 5000);
     }
 
     function startScanner() {
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScanSuccess)
-            .then(() => {
-                document.getElementById("camera-status").style.color = 'var(--secondary-color)';
-                document.getElementById("camera-status").innerText = 'Camera running... Ready to scan.';
-            })
-            .catch((err) => {
-                const readerDiv = document.getElementById("qr-reader");
-                readerDiv.innerHTML = 
-                    `<p style="color:red; text-align:center;">
-                        Failed to start camera. Please ensure camera access is allowed.
-                    </p>
-                    <button onclick="window.location.reload()">Retry Camera</button>`;
-                document.getElementById("camera-status").innerText = 'Camera failed to start.';
-                console.error("Camera Error:", err);
-            });
+        // Dynamic QR Box sizing for perfect capture on any screen
+        let qrboxFunction = function(viewfinderWidth, viewfinderHeight) {
+            let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+            let qrboxSize = Math.floor(minEdgeSize * 0.7);
+            return { width: qrboxSize, height: qrboxSize };
+        }
+
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            { 
+                fps: 20, // Faster scanning
+                qrbox: qrboxFunction,
+                aspectRatio: 1.0 
+            }, 
+            onScanSuccess
+        )
+        .then(() => {
+            document.getElementById("camera-status").style.color = 'var(--secondary-color)';
+            document.getElementById("camera-status").innerText = 'Camera running... Ready to scan.';
+        })
+        .catch((err) => {
+            document.getElementById("qr-reader").innerHTML = `<button onclick="window.location.reload()">Retry Camera</button>`;
+            console.error(err);
+        });
     }
-
-
-    /* --- Reporting and Local Storage Management --- */
 
     function refreshLogs() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         const now = new Date();
-
-        // 7-Day Cleanup: Filter out logs older than 7 days from local storage (must be done before pairing)
         logs = logs.filter(entry => {
-            const entryDate = new Date(entry.date);
-            const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
+            const diffDays = (now - new Date(entry.date)) / (1000 * 60 * 60 * 24);
             return diffDays <= 7;
         });
-
         localStorage.setItem("attendance", JSON.stringify(logs));
         renderTable(pairEntries(logs));
     }
 
-    /**
-     * Groups Time In and Time Out entries into single attendance records for the table and Excel.
-     */
     function pairEntries(entries) {
         const pairs = [], grouped = {};
-        
-        // Group entries by Student ID and Date
         entries.forEach(e => {
             const key = `${e.studentID}_${e.date}`;
             if (!grouped[key]) grouped[key] = [];
@@ -448,43 +327,19 @@
         });
 
         Object.values(grouped).forEach(g => {
-            // Sort by time to process in order
             g.sort((a,b) => new Date(a.time) - new Date(b.time));
-            
             let i = 0;
             while (i < g.length) {
                 const curr = g[i];
-                const baseRecord = { 
-                    studentID: curr.studentID, 
-                    studentName: curr.studentName, 
-                    studSection: curr.studSection,
-                    date: curr.date 
-                };
-
+                const base = { studentID: curr.studentID, studentName: curr.studentName, studSection: curr.studSection, date: curr.date };
                 if (curr.action === "Time In") {
                     let out = null;
-                    // Look for the next 'Time Out' for the same day
                     for (let j = i + 1; j < g.length; j++) {
-                        if (g[j].action === "Time Out") { 
-                            out = g[j]; 
-                            i = j; // Skip past the 'Time Out' entry
-                            break; 
-                        }
+                        if (g[j].action === "Time Out") { out = g[j]; i = j; break; }
                     }
-                    
-                    pairs.push({
-                        ...baseRecord,
-                        timeIn: formatTimeOnly(curr.time), 
-                        timeOut: out ? formatTimeOnly(out.time) : "-",
-                    });
-                    
-                } else if (curr.action === "Time Out") {
-                    // Handle standalone Time Out (unpaired, logged alone)
-                    pairs.push({
-                        ...baseRecord,
-                        timeIn: "-", 
-                        timeOut: formatTimeOnly(curr.time),
-                    });
+                    pairs.push({ ...base, timeIn: formatTimeOnly(curr.time), timeOut: out ? formatTimeOnly(out.time) : "-" });
+                } else {
+                    pairs.push({ ...base, timeIn: "-", timeOut: formatTimeOnly(curr.time) });
                 }
                 i++;
             }
@@ -495,93 +350,33 @@
     function renderTable(paired) {
         const tbody = document.getElementById("report-body");
         tbody.innerHTML = "";
-
-        // Sort by the latest time
-        const sorted = paired.sort((a, b) => {
-            const timeA = new Date(a.date + ' ' + (a.timeOut !== '-' ? a.timeOut : a.timeIn));
-            const timeB = new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : a.timeIn));
-            return timeB - timeA;
-        });
-
-        // Display only the top 2 recent logs
+        const sorted = paired.sort((a, b) => new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : b.timeIn)) - new Date(a.date + ' ' + (a.timeOut !== '-' ? a.timeOut : a.timeIn)));
         const recent = sorted.slice(0, 2); 
-
         if (recent.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#dc3545;">No recent attendance records found.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No recent records.</td></tr>`;
             return;
         }
-
         recent.forEach(e => {
-            const row = document.createElement("tr");
-            row.innerHTML = `<td>${e.studentID}</td>
-                             <td>${e.studentName}</td>
-                             <td>${e.studSection}</td>
-                             <td style="color:#007bff;">${e.timeIn}</td>
-                             <td style="color:#dc3545;">${e.timeOut}</td>
-                             <td>${e.date}</td>`;
-            tbody.appendChild(row);
+            tbody.innerHTML += `<tr><td>${e.studentID}</td><td>${e.studentName}</td><td>${e.studSection}</td><td style="color:#007bff;">${e.timeIn}</td><td style="color:#dc3545;">${e.timeOut}</td><td>${e.date}</td></tr>`;
         });
     }
 
-    /* --- Excel Download Logic --- */
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
-        
-        if (logs.length === 0) {
-            alert("No attendance data to download.");
-            return;
-        }
-
-        // Apply 7-day cleanup before processing for the download
-        const now = new Date();
-        logs = logs.filter(entry => {
-            const entryDate = new Date(entry.date);
-            const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
-            return diffDays <= 7;
-        });
-        localStorage.setItem("attendance", JSON.stringify(logs)); 
-
+        if (logs.length === 0) return alert("No data.");
         const pairedLogs = pairEntries(logs);
         const wb = XLSX.utils.book_new();
-
-        // Group paired logs by date
         const byDate = {};
         pairedLogs.forEach(log => {
             if (!byDate[log.date]) byDate[log.date] = [];
-            byDate[log.date].push({
-                "Date": log.date,
-                "Student ID": log.studentID,
-                "Name": log.studentName,
-                "Section": log.studSection,
-                "Time In": log.timeIn,
-                "Time Out": log.timeOut
-            });
+            byDate[log.date].push({ "Date": log.date, "ID": log.studentID, "Name": log.studentName, "Section": log.studSection, "In": log.timeIn, "Out": log.timeOut });
         });
-
-        // Create a worksheet per day (sorted by date, newest first)
         Object.keys(byDate).sort().reverse().forEach(date => { 
-            const ws = XLSX.utils.json_to_sheet(byDate[date]);
-            // Use M-D format for sheet name (e.g., "12-15")
-            XLSX.utils.book_append_sheet(wb, ws, date.slice(5)); 
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(byDate[date]), date.slice(5)); 
         });
-        
-        // Add a 'Raw Data' sheet containing all recorded entries
-        const rawData = logs.map(e => ({
-            "Timestamp": new Date(e.time).toLocaleString(),
-            "Student ID": e.studentID,
-            "Name": e.studentName,
-            "Section": e.studSection,
-            "Contact": e.studContact,
-            "Picture URL": e.studPictureUrl,
-            "Action": e.action,
-        }));
-        const wsRaw = XLSX.utils.json_to_sheet(rawData);
-        XLSX.utils.book_append_sheet(wb, wsRaw, "Raw Log");
-
-        XLSX.writeFile(wb, `ARK_Attendance_Logs_${getTodayDate()}.xlsx`);
+        XLSX.writeFile(wb, `ARK_Attendance_${getTodayDate()}.xlsx`);
     }
 
-    // --- Start App on Load ---
     document.addEventListener("DOMContentLoaded", () => {
         startScanner();
         refreshLogs();
