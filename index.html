@@ -7,6 +7,47 @@
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- INSTRUCTION: Replace this object with your own from Firebase Console ---
+  const firebaseConfig = {
+    apiKey: "AIzaSyBjOBb_CTu83d8Nn5jo9e0ELByCrNstowQ",
+    authDomain: "qrcodeattendance-c3ad0.firebaseapp.com",
+    projectId: "qrcodeattendance-c3ad0",
+    storageBucket: "qrcodeattendance-c3ad0.firebasestorage.app",
+    messagingSenderId: "561593729346",
+    appId: "1:561593729346:web:b83443038061b1be7c48db"
+  };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const attendanceCol = collection(db, "attendance_logs");
+
+        // Make functions globally accessible for the scanner logic
+        window.saveToFirebase = async (entry) => {
+            try {
+                await addDoc(attendanceCol, {
+                    ...entry,
+                    serverTimestamp: new Date() // Use server-side time for sync
+                });
+                console.log("Synced to Firebase");
+            } catch (e) {
+                console.error("Firebase Error: ", e);
+            }
+        };
+
+        // Real-time listener for the table
+        const q = query(attendanceCol, orderBy("serverTimestamp", "desc"), limit(20));
+        onSnapshot(q, (snapshot) => {
+            const remoteLogs = [];
+            snapshot.forEach((doc) => remoteLogs.push(doc.data()));
+            window.renderTable(window.pairEntries(remoteLogs));
+        });
+    </script>
+
     <style>
         :root {
             --primary-color: #007bff;
@@ -74,7 +115,7 @@
             margin-bottom: 20px; 
             border: 2px solid var(--border-color);
             border-radius: 5px;
-            overflow: hidden; /* Ensures camera doesn't bleed out */
+            overflow: hidden;
         }
         
         button { 
@@ -139,7 +180,7 @@
     </section>
     
     <section class="report-container">
-        <h2>📋 Recent Attendance Log</h2>
+        <h2>📋 Recent Attendance Log (Live Sync)</h2>
         <table id="attendanceTable">
             <thead>
                 <tr>
@@ -177,7 +218,6 @@
     }
     setPhilippineVoice();
 
-    // Enhances name reading (removes dots, handles common abbreviations)
     function cleanNameForSpeech(name) {
         return name.replace(/\./g, '').trim();
     }
@@ -214,15 +254,14 @@
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        // --- IMPROVED TEXT-TO-SPEECH ---
-        speechSynthesis.cancel(); // Stop any current speaking
+        speechSynthesis.cancel();
         const speechName = (action === 'Failed' || name === 'Invalid QR Code') ? 'Attention' : cleanNameForSpeech(name);
         const speechAction = action === 'Failed' ? 'Scan failed' : `${action} confirmed`;
         const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
         
         if (philippineVoice) msg.voice = philippineVoice;
         msg.pitch = 1;
-        msg.rate = 0.85; // Slightly slower for better clarity in noisy environments
+        msg.rate = 0.85; 
         speechSynthesis.speak(msg);
         
         setTimeout(() => el.style.display = "none", 3000);
@@ -250,10 +289,15 @@
             action: action
         };
 
+        // 1. Save locally
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         logs.push(entry);
         localStorage.setItem("attendance", JSON.stringify(logs));
 
+        // 2. Sync to Firebase (New)
+        if (window.saveToFirebase) window.saveToFirebase(entry);
+
+        // 3. Keep Google Sheet as backup
         fetch(GOOGLE_SHEET_URL, {
             method: "POST",
             mode: 'no-cors',
@@ -262,7 +306,6 @@
         });
 
         displayScanInfo(id, name, action); 
-        refreshLogs();
     }
 
     function onScanSuccess(text) {
@@ -275,13 +318,10 @@
         } else {
             displayScanInfo('N/A', 'Invalid QR Code', 'Failed'); 
         }
-
-        // --- UPDATED DELAY: 5 SECONDS ---
         setTimeout(() => { scanning = false; }, 5000);
     }
 
     function startScanner() {
-        // Dynamic QR Box sizing for perfect capture on any screen
         let qrboxFunction = function(viewfinderWidth, viewfinderHeight) {
             let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
             let qrboxSize = Math.floor(minEdgeSize * 0.7);
@@ -290,11 +330,7 @@
 
         html5QrCode.start(
             { facingMode: "environment" }, 
-            { 
-                fps: 20, // Faster scanning
-                qrbox: qrboxFunction,
-                aspectRatio: 1.0 
-            }, 
+            { fps: 20, qrbox: qrboxFunction, aspectRatio: 1.0 }, 
             onScanSuccess
         )
         .then(() => {
@@ -303,22 +339,11 @@
         })
         .catch((err) => {
             document.getElementById("qr-reader").innerHTML = `<button onclick="window.location.reload()">Retry Camera</button>`;
-            console.error(err);
         });
     }
 
-    function refreshLogs() {
-        let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
-        const now = new Date();
-        logs = logs.filter(entry => {
-            const diffDays = (now - new Date(entry.date)) / (1000 * 60 * 60 * 24);
-            return diffDays <= 7;
-        });
-        localStorage.setItem("attendance", JSON.stringify(logs));
-        renderTable(pairEntries(logs));
-    }
-
-    function pairEntries(entries) {
+    // Exported for Firebase listener
+    window.pairEntries = function(entries) {
         const pairs = [], grouped = {};
         entries.forEach(e => {
             const key = `${e.studentID}_${e.date}`;
@@ -345,13 +370,13 @@
             }
         });
         return pairs;
-    }
+    };
 
-    function renderTable(paired) {
+    window.renderTable = function(paired) {
         const tbody = document.getElementById("report-body");
         tbody.innerHTML = "";
         const sorted = paired.sort((a, b) => new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : b.timeIn)) - new Date(a.date + ' ' + (a.timeOut !== '-' ? a.timeOut : a.timeIn)));
-        const recent = sorted.slice(0, 2); 
+        const recent = sorted.slice(0, 5); // Show more since multiple users are scanning
         if (recent.length === 0) {
             tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No recent records.</td></tr>`;
             return;
@@ -359,12 +384,12 @@
         recent.forEach(e => {
             tbody.innerHTML += `<tr><td>${e.studentID}</td><td>${e.studentName}</td><td>${e.studSection}</td><td style="color:#007bff;">${e.timeIn}</td><td style="color:#dc3545;">${e.timeOut}</td><td>${e.date}</td></tr>`;
         });
-    }
+    };
 
     function downloadExcel() {
         let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
         if (logs.length === 0) return alert("No data.");
-        const pairedLogs = pairEntries(logs);
+        const pairedLogs = window.pairEntries(logs);
         const wb = XLSX.utils.book_new();
         const byDate = {};
         pairedLogs.forEach(log => {
@@ -379,7 +404,6 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         startScanner();
-        refreshLogs();
     });
 </script>
 </body>
