@@ -151,19 +151,48 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         .scanner-container { flex: 1; min-width: 100%; max-width: 100%; }
+
+        /* Make the qr-reader a responsive square container and position overlay on top */
         #qr-reader { 
             width: 100%; 
             margin-bottom: 14px; 
             border: 2px solid var(--border-color);
-            border-radius: 5px;
+            border-radius: 8px;
             overflow: hidden;
-            /* Responsive height so the camera area adjusts on small devices */
-            min-height: 220px;
+            position: relative;
+            /* ensure a square area that adapts to viewport */
+            aspect-ratio: 1 / 1;
+            min-height: 240px;
             max-height: 60vh;
-            height: min(420px, 55vh);
-            display: block;
+            background: #000; /* fallback while camera initializes */
         }
-        
+
+        /* Visual overlay that shows a centered square (equal margins on each side) */
+        #qr-reader .qr-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 78%;
+            aspect-ratio: 1 / 1;
+            max-width: 720px;
+            max-height: 720px;
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.35), inset 0 0 0 3px rgba(255,255,255,0.12);
+            border: 2px dashed rgba(255,255,255,0.7);
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* small label within overlay to help user align (optional) */
+        #qr-reader .qr-overlay::after {
+            content: '';
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 10px;
+        }
+
         button { 
             background-color: var(--primary-color);
             color: white;
@@ -213,7 +242,8 @@
             .container { max-width: 95%; }
             .company-name { font-size: 20px; }
             table { min-width: 640px; font-size: 12px; }
-            #qr-reader { min-height: 180px; height: min(360px, 50vh); }
+            #qr-reader { min-height: 200px; max-height: 55vh; }
+            #qr-reader .qr-overlay { width: 84%; }
         }
 
         @media (max-width: 420px) {
@@ -222,6 +252,8 @@
             button { font-size: 14px; padding: 9px 12px; }
             #scan-display { padding: 18px 20px; font-size: 16px; max-width: 360px; }
             table { min-width: 600px; font-size: 11px; }
+            #qr-reader { min-height: 180px; }
+            #qr-reader .qr-overlay { width: 88%; }
         }
     </style>
 </head>
@@ -240,7 +272,8 @@
 <div class="container">
     <section class="scanner-container">
         <h2>📷 QR Code Scanner</h2>
-        <div id="qr-reader"></div>
+        <!-- Keep an overlay inside the reader to show the centered square area with equal margins -->
+        <div id="qr-reader"><div class="qr-overlay" aria-hidden="true"></div></div>
         <p id="camera-status" style="text-align:center; color:gray;"></p>
     </section>
     
@@ -269,7 +302,11 @@
 
 <script>
     const html5QrCode = new Html5Qrcode("qr-reader");
+    // scanning lock and cooldown to prevent multiple scans
     let scanning = false;
+    const SCAN_COOLDOWN = 8000; // 8 seconds cooldown between accepted scans
+    let lastScanAt = 0;
+
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
     
     let philippineVoice = null;
@@ -385,23 +422,36 @@
     }
 
     function onScanSuccess(text) {
+        // prevent overlapping processing
         if (scanning) return;
+
+        // enforce cooldown (8s) between accepted scans
+        if (Date.now() - lastScanAt < SCAN_COOLDOWN) {
+            // optional: briefly show a small flash or ignore silently
+            return;
+        }
+
         scanning = true;
-        
+        lastScanAt = Date.now();
+
         const details = text.split('|').map(s => s.trim()); 
         if (details.length >= 3) { 
             logAttendance(details);
         } else {
             displayScanInfo('N/A', 'Invalid QR Code', 'Failed'); 
         }
-        // small debounce to avoid double-scans on same device
-        setTimeout(() => { scanning = false; }, 1500);
+
+        // short internal lock while processing (keeps UX immediate)
+        setTimeout(() => { scanning = false; }, 900);
+        // The cooldown (lastScanAt) prevents next accepted scan for SCAN_COOLDOWN (8s)
     }
 
     function startScanner() {
+        // The qrbox function should return a square whose size is based on the viewfinder's shorter side
         let qrboxFunction = function(viewfinderWidth, viewfinderHeight) {
             let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-            let qrboxSize = Math.floor(minEdgeSize * 0.7);
+            // make the qrbox slightly smaller than the overlay square so it fits nicely
+            let qrboxSize = Math.floor(minEdgeSize * 0.78);
             return { width: qrboxSize, height: qrboxSize };
         }
 
