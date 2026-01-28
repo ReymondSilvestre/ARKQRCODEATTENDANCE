@@ -10,7 +10,7 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, serverTimestamp, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBjOBb_CTu83d8Nn5jo9e0ELByCrNstowQ",
@@ -28,6 +28,8 @@
 
         window.remoteAttendanceLogs = [];
         window.remoteVisitorLogs = [];
+        window.attendanceDocIds = {};
+        window.visitorDocIds = {};
 
         function dedupeEntries(arr) {
             const map = {};
@@ -55,11 +57,12 @@
 
         window.saveToFirebase = async (entry) => {
             try {
-                await addDoc(attendanceCol, {
+                const docRef = await addDoc(attendanceCol, {
                     ...entry,
                     serverTimestamp: serverTimestamp()
                 });
                 console.log("Synced to Firebase");
+                return docRef.id;
             } catch (e) {
                 console.error("Firebase Error: ", e);
             }
@@ -67,22 +70,46 @@
 
         window.saveVisitorToFirebase = async (entry) => {
             try {
-                await addDoc(visitorsCol, {
+                const docRef = await addDoc(visitorsCol, {
                     ...entry,
                     serverTimestamp: serverTimestamp()
                 });
                 console.log("Visitor synced to Firebase");
+                return docRef.id;
             } catch (e) {
                 console.error("Firebase Error: ", e);
+            }
+        };
+
+        window.deleteFromFirebase = async (docId) => {
+            try {
+                await deleteDoc(doc(db, "attendance_logs", docId));
+                console.log("Deleted from Firebase");
+                return true;
+            } catch (e) {
+                console.error("Firebase Delete Error: ", e);
+                return false;
+            }
+        };
+
+        window.deleteVisitorFromFirebase = async (docId) => {
+            try {
+                await deleteDoc(doc(db, "visitor_logs", docId));
+                console.log("Visitor deleted from Firebase");
+                return true;
+            } catch (e) {
+                console.error("Firebase Delete Error: ", e);
+                return false;
             }
         };
 
         const q = query(attendanceCol, orderBy("serverTimestamp", "desc"), limit(200));
         onSnapshot(q, (snapshot) => {
             const remoteLogs = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                remoteLogs.push({
+            window.attendanceDocIds = {};
+            snapshot.forEach((docSnap) => {
+                const data = docSnap.data();
+                const entry = {
                     studentID: data.studentID,
                     studentName: data.studentName,
                     studSection: data.studSection,
@@ -92,30 +119,43 @@
                     date: data.date,
                     action: data.action,
                     serverTimestamp: data.serverTimestamp
-                });
+                };
+                remoteLogs.push(entry);
+                const key = `${data.studentID}_${data.date}_${data.time}_${data.action}`;
+                window.attendanceDocIds[key] = docSnap.id;
             });
             window.remoteAttendanceLogs = remoteLogs;
-            const combined = getCombinedLogs();
-            window.renderTable(window.pairEntries(combined));
+            if (window.currentSection) {
+                window.filterBySection(window.currentSection);
+            } else {
+                const combined = getCombinedLogs();
+                window.renderTable(window.pairEntries(combined));
+            }
             window.updateDashboard();
+            window.renderSectionButtons();
         });
 
         const qVisitors = query(visitorsCol, orderBy("serverTimestamp", "desc"), limit(200));
         onSnapshot(qVisitors, (snapshot) => {
             const remoteLogs = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                remoteLogs.push({
+            window.visitorDocIds = {};
+            snapshot.forEach((docSnap) => {
+                const data = docSnap.data();
+                const entry = {
                     visitorName: data.visitorName,
                     visitorContact: data.visitorContact,
                     transaction: data.transaction,
                     time: data.time,
                     date: data.date,
                     serverTimestamp: data.serverTimestamp
-                });
+                };
+                remoteLogs.push(entry);
+                const key = `${data.visitorName}_${data.date}_${data.time}_${data.transaction}`;
+                window.visitorDocIds[key] = docSnap.id;
             });
             window.remoteVisitorLogs = remoteLogs;
             const combined = getCombinedVisitorLogs();
+            window.allVisitorEntries = combined;
             window.renderVisitorTable(combined);
             window.updateDashboard();
         });
@@ -133,11 +173,11 @@
             --secondary-hover: #dc2626;
             --accent-color: #991b1b;
             --danger-color: #7f1d1d;
-            --background-color: #0a0a0a;
-            --card-background: #1a1a1a;
-            --border-color: #2a2a2a;
-            --text-primary: #ffffff;
-            --text-secondary: #a3a3a3;
+            --background-color: #fef2f2;
+            --card-background: #ffffff;
+            --border-color: #fecaca;
+            --text-primary: #1f2937;
+            --text-secondary: #6b7280;
             --shadow-sm: 0 1px 2px 0 rgba(220, 38, 38, 0.15);
             --shadow-md: 0 4px 6px -1px rgba(220, 38, 38, 0.2);
             --shadow-lg: 0 10px 15px -3px rgba(220, 38, 38, 0.3);
@@ -151,18 +191,19 @@
 
         body {
             font-family: 'Outfit', sans-serif;
-            background: linear-gradient(135deg, #1a0000 0%, #000000 50%, #1a0000 100%);
+            background: linear-gradient(135deg, #fef2f2 0%, #fff5f5 50%, #fef2f2 100%);
             background-attachment: fixed;
             padding: 20px;
             color: var(--text-primary);
             min-height: 100vh;
+            line-height: 1.6;
         }
 
         .header {
             text-align: center;
             margin-bottom: 24px;
             background: var(--card-background);
-            padding: 24px;
+            padding: 32px 24px;
             border-radius: 16px;
             box-shadow: var(--shadow-lg);
             border: 2px solid var(--primary-color);
@@ -171,26 +212,28 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 16px;
+            gap: 20px;
             flex-wrap: wrap;
         }
         .logo {
-            max-width: 72px;
+            max-width: 80px;
             height: auto;
-            filter: drop-shadow(0 2px 4px rgba(220, 38, 38, 0.3));
+            filter: drop-shadow(0 4px 6px rgba(220, 38, 38, 0.3));
         }
         .company-name {
-            font-size: clamp(20px, 4vw, 32px);
+            font-size: clamp(22px, 4vw, 36px);
             color: var(--text-primary);
             margin: 0;
             font-weight: 700;
             letter-spacing: -0.5px;
+            line-height: 1.2;
         }
         .company-address {
-            font-size: clamp(13px, 2.5vw, 15px);
+            font-size: clamp(13px, 2.5vw, 16px);
             color: var(--text-secondary);
-            margin-top: 6px;
+            margin-top: 8px;
             font-weight: 400;
+            line-height: 1.5;
         }
 
         /* Navigation Tabs */
@@ -210,7 +253,7 @@
         .nav-tab {
             padding: 12px 24px;
             border: none;
-            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             color: var(--text-primary);
             border-radius: 10px;
             font-size: 15px;
@@ -219,14 +262,14 @@
             transition: all 0.3s ease;
             font-family: 'Outfit', sans-serif;
             box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-color);
+            border: 2px solid var(--border-color);
         }
 
         .nav-tab:hover {
-            background: linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             transform: translateY(-2px);
             box-shadow: var(--shadow-md);
-            border-color: var(--primary-color);
+            border-color: var(--secondary-color);
         }
 
         .nav-tab.active {
@@ -272,16 +315,24 @@
 
         .scanner-container, .visitor-container, .report-container, .dashboard-container {
             background: var(--card-background);
-            padding: 24px;
+            padding: 28px;
             border-radius: 16px;
             box-shadow: var(--shadow-lg);
             border: 2px solid var(--primary-color);
             animation: slideUp 0.5s ease-out;
+            transition: all 0.3s ease;
+        }
+
+        .scanner-container:hover, 
+        .visitor-container:hover, 
+        .report-container:hover, 
+        .dashboard-container:hover {
+            box-shadow: 0 12px 20px -3px rgba(220, 38, 38, 0.35);
         }
 
         /* Center scanner and visitor containers */
         .scanner-container, .visitor-container {
-            max-width: 600px;
+            max-width: 700px;
             margin: 0 auto;
         }
 
@@ -306,6 +357,134 @@
             gap: 10px;
         }
 
+        /* Section Filter */
+        .section-filter {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            padding: 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            border: 2px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .section-filter:hover {
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .section-filter h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .section-btn {
+            background: linear-gradient(135deg, #ffffff 0%, #fee2e2 100%);
+            color: var(--text-primary);
+            border: 2px solid var(--border-color);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .section-btn:hover {
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .section-btn.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border-color: var(--primary-color);
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+
+        .section-count {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .search-box {
+            position: relative;
+            margin-top: 12px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px 12px 44px;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 15px;
+            font-family: 'Outfit', sans-serif;
+            background: #ffffff;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+        }
+
+        .search-box input::placeholder {
+            color: #9ca3af;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: var(--text-secondary);
+            pointer-events: none;
+        }
+
+        .clear-search {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 20px;
+            padding: 4px 8px;
+            margin: 0;
+            display: none;
+        }
+
+        .clear-search:hover {
+            color: var(--primary-color);
+            transform: translateY(-50%) scale(1.1);
+        }
+
         /* Dashboard Stats */
         .stats-grid {
             display: grid;
@@ -315,7 +494,7 @@
         }
 
         .stat-card {
-            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             padding: 20px;
             border-radius: 12px;
             border: 2px solid var(--border-color);
@@ -329,22 +508,22 @@
         }
 
         .stat-card.primary {
-            background: linear-gradient(135deg, #3a1a1a 0%, #2a0a0a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             border-color: var(--primary-color);
         }
 
         .stat-card.success {
-            background: linear-gradient(135deg, #3a1a1a 0%, #2a0a0a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             border-color: var(--secondary-color);
         }
 
         .stat-card.warning {
-            background: linear-gradient(135deg, #3a1a1a 0%, #2a0a0a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             border-color: #dc2626;
         }
 
         .stat-card.danger {
-            background: linear-gradient(135deg, #3a0a0a 0%, #2a0000 100%);
+            background: linear-gradient(135deg, #fca5a5 0%, #f87171 100%);
             border-color: var(--accent-color);
         }
 
@@ -400,11 +579,11 @@
 
         /* Voice settings section */
         .voice-settings {
-            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             padding: 16px;
             border-radius: 12px;
             margin-bottom: 18px;
-            border: 1px solid var(--border-color);
+            border: 2px solid var(--border-color);
         }
         .voice-settings label {
             display: block;
@@ -420,7 +599,7 @@
             border: 2px solid var(--border-color);
             font-size: 14px;
             font-family: 'Outfit', sans-serif;
-            background: #0a0a0a;
+            background: #ffffff;
             color: var(--text-primary);
             transition: all 0.3s ease;
         }
@@ -430,14 +609,15 @@
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
         }
         .voice-test-btn {
-            background: linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%);
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             padding: 8px 16px;
             font-size: 13px;
             margin-top: 10px;
-            border: 1px solid var(--border-color);
+            border: 2px solid var(--border-color);
+            color: var(--text-primary);
         }
         .voice-test-btn:hover {
-            background: linear-gradient(135deg, #4a4a4a 0%, #3a3a3a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             transform: translateY(-1px);
             border-color: var(--primary-color);
         }
@@ -509,7 +689,7 @@
             font-size: 15px;
             font-family: 'Outfit', sans-serif;
             transition: all 0.3s ease;
-            background: #0a0a0a;
+            background: #ffffff;
             color: var(--text-primary);
         }
 
@@ -527,14 +707,14 @@
 
         .form-group input::placeholder,
         .form-group textarea::placeholder {
-            color: #525252;
+            color: #9ca3af;
         }
 
         button { 
             background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
             color: white;
             border: none;
-            padding: 12px 20px;
+            padding: 14px 24px;
             border-radius: 10px;
             font-size: 15px;
             font-weight: 600;
@@ -543,15 +723,18 @@
             margin-top: 8px;
             font-family: 'Outfit', sans-serif;
             box-shadow: var(--shadow-md);
+            border: 2px solid transparent;
         }
         button:hover { 
             background: linear-gradient(135deg, var(--primary-hover) 0%, #991b1b 100%);
             transform: translateY(-2px);
             box-shadow: var(--shadow-lg);
+            border-color: var(--primary-hover);
         }
 
         button:active {
             transform: translateY(0);
+            box-shadow: var(--shadow-md);
         }
 
         .submit-visitor-btn {
@@ -569,36 +752,120 @@
             overflow-x: auto;
             border-radius: 10px;
             box-shadow: var(--shadow-sm);
+            max-height: 600px;
+            overflow-y: auto;
+            position: relative;
         }
+        
+        .table-wrapper::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        
+        .table-wrapper::-webkit-scrollbar-track {
+            background: #fee2e2;
+            border-radius: 10px;
+        }
+        
+        .table-wrapper::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            border-radius: 10px;
+        }
+        
+        .table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, var(--primary-hover) 0%, var(--accent-color) 100%);
+        }
+        
         table { 
             border-collapse: collapse; 
             width: 100%; 
-            margin-top: 10px; 
+            margin-top: 0;
+            font-size: 14px; 
+            min-width: 700px;
+            background: var(--card-background);
+        }
+        
+        thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        table { 
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%; 
+            margin-top: 0;
             font-size: 14px; 
             min-width: 700px;
             background: var(--card-background);
         }
         th, td { 
             border: 1px solid var(--border-color); 
-            padding: 12px 14px; 
+            padding: 14px 16px; 
             text-align: left; 
         }
+        
+        th:first-child {
+            border-top-left-radius: 8px;
+        }
+        
+        th:last-child {
+            border-top-right-radius: 8px;
+        }
+        
         th { 
-            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
             font-weight: 700;
             color: var(--text-primary);
             text-transform: uppercase;
             font-size: 12px;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
+            border-bottom: 2px solid var(--primary-color);
         }
         td { 
             word-break: break-word; 
             vertical-align: middle;
             color: var(--text-primary);
+            background: #ffffff;
         }
 
-        tr:hover {
-            background-color: #2a2a2a;
+        tr:hover td {
+            background-color: #fef2f2;
+        }
+        
+        tbody tr:last-child td:first-child {
+            border-bottom-left-radius: 8px;
+        }
+        
+        tbody tr:last-child td:last-child {
+            border-bottom-right-radius: 8px;
+        }
+
+        /* Delete button styles */
+        .delete-btn {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin: 0;
+        }
+
+        .delete-btn:hover {
+            background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+            transform: scale(1.05);
+        }
+
+        .delete-btn:active {
+            transform: scale(0.95);
         }
 
         #scan-display {
@@ -651,9 +918,9 @@
         }
 
         .success-message {
-            background: linear-gradient(135deg, #3a1a1a 0%, #2a0a0a 100%);
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
             border: 2px solid var(--secondary-color);
-            color: #ffffff;
+            color: var(--text-primary);
             padding: 14px 18px;
             border-radius: 10px;
             margin-top: 12px;
@@ -691,7 +958,7 @@
             align-items: center;
             gap: 12px;
             padding: 12px;
-            background: #2a2a2a;
+            background: #fee2e2;
             border-radius: 8px;
             margin-bottom: 8px;
             border-left: 4px solid var(--primary-color);
@@ -699,7 +966,7 @@
         }
 
         .activity-item:hover {
-            background: #3a3a3a;
+            background: #fecaca;
             transform: translateX(4px);
         }
 
@@ -735,25 +1002,432 @@
             text-align: right;
         }
 
+        /* Confirmation Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--card-background);
+            border: 3px solid var(--primary-color);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 400px;
+            width: calc(100% - 40px);
+            z-index: 10001;
+            box-shadow: 0 20px 40px rgba(220, 38, 38, 0.6);
+            animation: popIn 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .modal-icon {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .modal-message {
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 24px;
+            color: var(--text-secondary);
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .modal-btn {
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .modal-btn-cancel {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            color: var(--text-primary);
+        }
+
+        .modal-btn-cancel:hover {
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+        }
+
+        .modal-btn-confirm {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+            color: white;
+        }
+
+        .modal-btn-confirm:hover {
+            background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+
+        /* Pagination Controls */
+        .pagination-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 24px;
+            padding: 20px;
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            border-radius: 12px;
+            border: 2px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .page-size-selector label {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .page-size-selector select {
+            padding: 10px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            background: #ffffff;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .page-size-selector select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+        }
+
+        .page-size-selector select:hover {
+            border-color: var(--primary-color);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .page-btn {
+            padding: 10px 20px;
+            border: 2px solid var(--border-color);
+            background: linear-gradient(135deg, #ffffff 0%, #fee2e2 100%);
+            color: var(--text-primary);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+            margin: 0;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .page-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .page-info {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            padding: 0 8px;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        /* Logs Sub-tabs */
+        .logs-subtabs {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            padding: 12px;
+            border-radius: 12px;
+            border: 2px solid var(--border-color);
+            flex-wrap: wrap;
+        }
+
+        .logs-subtab {
+            flex: 1;
+            min-width: 150px;
+            padding: 16px 24px;
+            border: none;
+            background: linear-gradient(135deg, #ffffff 0%, #fee2e2 100%);
+            color: var(--text-primary);
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+            box-shadow: var(--shadow-sm);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .logs-subtab:hover {
+            background: linear-gradient(135deg, #fecaca 0%, #fca5a5 100%);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--primary-color);
+        }
+
+        .logs-subtab.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: white;
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow-md);
+        }
+
+        .logs-subtab.active {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .logs-content {
+            display: none;
+        }
+
+        .logs-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+
         @media (max-width: 850px) {
-            .container { max-width: 95%; }
-            .company-name { font-size: 20px; }
-            table { min-width: 640px; font-size: 13px; }
-            #qr-reader { min-height: 220px; max-height: 55vh; }
-            #qr-reader .qr-overlay { width: 84%; }
-            .stats-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+            .container { 
+                max-width: 100%; 
+                padding: 0 10px;
+            }
+            .company-name { 
+                font-size: 18px; 
+            }
+            .company-address {
+                font-size: 12px;
+            }
+            table { 
+                min-width: 640px; 
+                font-size: 12px; 
+            }
+            #qr-reader { 
+                min-height: 220px; 
+                max-height: 55vh; 
+            }
+            #qr-reader .qr-overlay { 
+                width: 84%; 
+            }
+            .stats-grid { 
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+            .stat-card {
+                padding: 16px;
+            }
+            .stat-value {
+                font-size: 24px;
+            }
+            .stat-icon {
+                font-size: 28px;
+            }
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            .section-buttons {
+                gap: 8px;
+            }
+            .section-btn {
+                padding: 8px 14px;
+                font-size: 13px;
+            }
+            .pagination-controls {
+                flex-direction: column;
+                gap: 16px;
+            }
+            .page-size-selector,
+            .pagination-buttons {
+                width: 100%;
+                justify-content: center;
+            }
+            h2 {
+                font-size: 18px;
+            }
+            .nav-tabs {
+                gap: 8px;
+                padding: 12px;
+            }
+            .nav-tab {
+                padding: 10px 16px;
+                font-size: 13px;
+            }
+            .logs-subtabs {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .logs-subtab {
+                min-width: 100%;
+            }
+            .scanner-container,
+            .visitor-container {
+                padding: 16px;
+            }
+            .report-container {
+                padding: 16px;
+            }
+            .report-container button {
+                display: block;
+                width: 100%;
+                margin-left: 0 !important;
+                margin-top: 12px;
+            }
         }
 
         @media (max-width: 420px) {
-            .header { padding: 16px; }
-            .logo { max-width: 60px; }
-            button { font-size: 14px; padding: 10px 16px; }
-            #scan-display { padding: 22px 24px; font-size: 16px; max-width: 360px; }
-            table { min-width: 600px; font-size: 12px; }
-            #qr-reader { min-height: 200px; }
-            #qr-reader .qr-overlay { width: 88%; }
-            .nav-tabs { padding: 12px; gap: 8px; }
-            .nav-tab { padding: 10px 16px; font-size: 14px; }
+            body {
+                padding: 10px;
+            }
+            .header { 
+                padding: 12px; 
+                margin-bottom: 16px;
+            }
+            .logo { 
+                max-width: 50px; 
+            }
+            .company-name {
+                font-size: 16px;
+            }
+            .company-address {
+                font-size: 11px;
+            }
+            button { 
+                font-size: 13px; 
+                padding: 10px 14px; 
+            }
+            #scan-display { 
+                padding: 20px; 
+                font-size: 15px; 
+                max-width: calc(100% - 20px);
+            }
+            table { 
+                min-width: 600px; 
+                font-size: 11px; 
+            }
+            th, td {
+                padding: 8px 10px;
+            }
+            #qr-reader { 
+                min-height: 200px; 
+            }
+            #qr-reader .qr-overlay { 
+                width: 88%; 
+            }
+            .nav-tabs { 
+                padding: 8px; 
+                gap: 6px; 
+            }
+            .nav-tab { 
+                padding: 8px 12px; 
+                font-size: 12px; 
+            }
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            .stat-card {
+                padding: 14px;
+            }
+            .section-filter {
+                padding: 14px;
+            }
+            .form-group input,
+            .form-group textarea {
+                font-size: 14px;
+            }
+            .activity-item {
+                padding: 10px;
+                gap: 8px;
+            }
+            .activity-icon {
+                font-size: 20px;
+                min-width: 30px;
+            }
+            .modal {
+                padding: 24px;
+            }
+        }
+
+        /* Tablet landscape and small desktop */
+        @media (min-width: 768px) and (max-width: 1023px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .charts-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Large desktop */
+        @media (min-width: 1400px) {
+            .container {
+                max-width: 1600px;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
         }
     </style>
 </head>
@@ -772,9 +1446,9 @@
 <!-- Navigation Tabs -->
 <div class="nav-tabs">
     <button class="nav-tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+    <button class="nav-tab" onclick="switchTab('logs')">📋 Logs</button>
     <button class="nav-tab" onclick="switchTab('scanner')">📷 QR Scanner</button>
     <button class="nav-tab" onclick="switchTab('visitor')">👤 Visitor Registration</button>
-    <button class="nav-tab" onclick="switchTab('logs')">📋 Logs</button>
 </div>
 
 <!-- Dashboard Tab -->
@@ -844,6 +1518,151 @@
     </div>
 </div>
 
+<!-- Logs Tab -->
+<div id="logs-tab" class="tab-content">
+    <div class="container">
+        <!-- Attendance Log Content -->
+        <div id="attendance-log-content" class="logs-content active">
+            <section class="report-container">
+                <h2>📋 Attendance Logs by Section</h2>
+                
+                <!-- Logs Sub-navigation -->
+                <div class="logs-subtabs">
+                    <button class="logs-subtab active" onclick="switchLogsSubtab('attendance-log')">
+                        📋 Attendance Log
+                    </button>
+                    <button class="logs-subtab" onclick="switchLogsSubtab('visitor-log')">
+                        👥 Visitor Log
+                    </button>
+                </div>
+                
+                <!-- Section Filter -->
+                <div class="section-filter">
+                    <h3>🏫 Filter by Section</h3>
+                    <div class="section-buttons" id="section-buttons">
+                        <button class="section-btn active" onclick="filterBySection(null)">
+                            📚 All Sections <span class="section-count" id="count-all">0</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Search Box -->
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="search-input" placeholder="Search by name, ID, or section..." oninput="handleSearch()">
+                        <button class="clear-search" id="clear-search" onclick="clearSearch()">✕</button>
+                    </div>
+                </div>
+                
+                <div class="table-wrapper">
+                    <table id="attendanceTable">
+                        <thead>
+                            <tr>
+                                <th>Student ID</th>
+                                <th>Name</th>
+                                <th>Section</th>
+                                <th>Time In</th>
+                                <th>Time Out</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-body"></tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination Controls -->
+                <div class="pagination-controls">
+                    <div class="page-size-selector">
+                        <label>Show:</label>
+                        <select id="attendance-page-size" onchange="changeAttendancePageSize()">
+                            <option value="20" selected>20 entries</option>
+                            <option value="50">50 entries</option>
+                            <option value="100">100 entries</option>
+                            <option value="-1">All entries</option>
+                        </select>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="page-btn" id="attendance-prev-btn" onclick="changeAttendancePage(-1)">← Previous</button>
+                        <span class="page-info" id="attendance-page-info">Page 1</span>
+                        <button class="page-btn" id="attendance-next-btn" onclick="changeAttendancePage(1)">Next →</button>
+                    </div>
+                </div>
+                
+                <button onclick="downloadExcel()">⬇️ Download Full Excel Log</button>
+                <button onclick="showResetModal('attendance')" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); margin-left: 12px;">
+                    🗑️ Reset Attendance Database
+                </button>
+            </section>
+        </div>
+
+        <!-- Visitor Log Content -->
+        <div id="visitor-log-content" class="logs-content">
+            <section class="report-container">
+                <h2>👥 Visitor Log</h2>
+                
+                <!-- Logs Sub-navigation -->
+                <div class="logs-subtabs">
+                    <button class="logs-subtab" onclick="switchLogsSubtab('attendance-log')">
+                        📋 Attendance Log
+                    </button>
+                    <button class="logs-subtab active" onclick="switchLogsSubtab('visitor-log')">
+                        👥 Visitor Log
+                    </button>
+                </div>
+                
+                <!-- Visitor Search Box -->
+                <div class="section-filter">
+                    <h3>🔍 Search Visitors</h3>
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="visitor-search-input" placeholder="Search by name, contact, or transaction..." oninput="handleVisitorSearch()">
+                        <button class="clear-search" id="clear-visitor-search" onclick="clearVisitorSearch()">✕</button>
+                    </div>
+                </div>
+                
+                <div class="table-wrapper">
+                    <table id="visitorTable">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Contact</th>
+                                <th>Transaction</th>
+                                <th>Time</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="visitor-body"></tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination Controls -->
+                <div class="pagination-controls">
+                    <div class="page-size-selector">
+                        <label>Show:</label>
+                        <select id="visitor-page-size" onchange="changeVisitorPageSize()">
+                            <option value="20" selected>20 entries</option>
+                            <option value="50">50 entries</option>
+                            <option value="100">100 entries</option>
+                            <option value="-1">All entries</option>
+                        </select>
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="page-btn" id="visitor-prev-btn" onclick="changeVisitorPage(-1)">← Previous</button>
+                        <span class="page-info" id="visitor-page-info">Page 1</span>
+                        <button class="page-btn" id="visitor-next-btn" onclick="changeVisitorPage(1)">Next →</button>
+                    </div>
+                </div>
+                
+                <button onclick="downloadVisitorExcel()">⬇️ Download Visitor Excel Log</button>
+                <button onclick="showResetModal('visitor')" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); margin-left: 12px;">
+                    🗑️ Reset Visitor Database
+                </button>
+            </section>
+        </div>
+    </div>
+</div>
+
 <!-- Scanner Tab -->
 <div id="scanner-tab" class="tab-content">
     <div class="container">
@@ -893,53 +1712,65 @@
     </div>
 </div>
 
-<!-- Logs Tab -->
-<div id="logs-tab" class="tab-content">
-    <div class="container">
-        <section class="report-container">
-            <h2>📋 Recent Attendance Log (Live Sync)</h2>
-            <div class="table-wrapper">
-                <table id="attendanceTable">
-                    <thead>
-                        <tr>
-                            <th>Student ID</th>
-                            <th>Name</th>
-                            <th>Section</th>
-                            <th>Time In</th>
-                            <th>Time Out</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="report-body"></tbody>
-                </table>
-            </div>
-            <button onclick="downloadExcel()">⬇️ Download Full Excel Log</button>
-        </section>
+<div id="scan-display"></div>
 
-        <section class="report-container">
-            <h2>👥 Visitor Log</h2>
-            <div class="table-wrapper">
-                <table id="visitorTable">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Contact</th>
-                            <th>Transaction</th>
-                            <th>Time</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody id="visitor-body"></tbody>
-                </table>
-            </div>
-            <button onclick="downloadVisitorExcel()">⬇️ Download Visitor Excel Log</button>
-        </section>
+<!-- Confirmation Modal -->
+<div class="modal-overlay" id="delete-modal-overlay">
+    <div class="modal">
+        <div class="modal-icon">🗑️</div>
+        <div class="modal-title">Delete Entry?</div>
+        <div class="modal-message" id="modal-message">Are you sure you want to delete this entry?</div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-cancel" onclick="closeDeleteModal()">Cancel</button>
+            <button class="modal-btn modal-btn-confirm" id="confirm-delete-btn">Delete</button>
+        </div>
     </div>
 </div>
 
-<div id="scan-display"></div>
+<!-- Reset Database Modal -->
+<div class="modal-overlay" id="reset-modal-overlay">
+    <div class="modal">
+        <div class="modal-icon" style="font-size: 64px;">⚠️</div>
+        <div class="modal-title" style="color: #dc2626;">Reset Database?</div>
+        <div class="modal-message" id="reset-modal-message">
+            This will permanently delete all attendance records from both local storage and Firebase. 
+            <br><br>
+            <strong style="color: #dc2626;">This action cannot be undone!</strong>
+            <br><br>
+            Are you sure you want to continue?
+        </div>
+        <div class="modal-buttons">
+            <button class="modal-btn modal-btn-cancel" onclick="closeResetModal()">Cancel</button>
+            <button class="modal-btn modal-btn-confirm" id="confirm-reset-btn" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);">
+                Yes, Reset Database
+            </button>
+        </div>
+    </div>
+</div>
 
 <script>
+    // Global variables
+    window.currentSection = null;
+    window.currentSearchTerm = '';
+    window.allPairedEntries = [];
+    window.allVisitorEntries = [];
+    window.currentVisitorSearchTerm = '';
+    
+    // Pagination variables
+    window.attendanceCurrentPage = 1;
+    window.attendancePageSize = 20;
+    window.visitorCurrentPage = 1;
+    window.visitorPageSize = 20;
+
+    // Logs subtab switching
+    function switchLogsSubtab(subtabName) {
+        document.querySelectorAll('.logs-content').forEach(content => content.classList.remove('active'));
+        document.querySelectorAll('.logs-subtab').forEach(btn => btn.classList.remove('active'));
+        
+        document.getElementById(`${subtabName}-content`).classList.add('active');
+        event.target.classList.add('active');
+    }
+
     // Tab switching
     function switchTab(tabName) {
         document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
@@ -956,6 +1787,10 @@
         if (tabName === 'dashboard') {
             updateDashboard();
         }
+        
+        if (tabName === 'logs') {
+            renderSectionButtons();
+        }
     }
 
     const html5QrCode = new Html5Qrcode("qr-reader");
@@ -970,6 +1805,327 @@
 
     // Charts
     let hourlyChart, weeklyChart, sectionsChart, peakHoursChart;
+
+    // Delete modal
+    let pendingDelete = null;
+    let pendingReset = null;
+
+    function showDeleteModal(type, data, docId = null) {
+        pendingDelete = { type, data, docId };
+        
+        const message = type === 'attendance' 
+            ? `Delete attendance record for ${data.studentName}?`
+            : `Delete visitor record for ${data.visitorName}?`;
+        
+        document.getElementById('modal-message').textContent = message;
+        document.getElementById('delete-modal-overlay').style.display = 'block';
+        
+        document.getElementById('confirm-delete-btn').onclick = confirmDelete;
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('delete-modal-overlay').style.display = 'none';
+        pendingDelete = null;
+    }
+
+    // Reset Database Modal
+    window.showResetModal = function(type) {
+        pendingReset = type;
+        
+        const message = type === 'attendance' 
+            ? 'This will permanently delete all attendance records from both local storage and Firebase.'
+            : 'This will permanently delete all visitor records from both local storage and Firebase.';
+        
+        document.getElementById('reset-modal-message').innerHTML = `
+            ${message}
+            <br><br>
+            <strong style="color: #dc2626;">This action cannot be undone!</strong>
+            <br><br>
+            Are you sure you want to continue?
+        `;
+        
+        document.getElementById('reset-modal-overlay').style.display = 'block';
+        
+        document.getElementById('confirm-reset-btn').onclick = confirmReset;
+    };
+
+    function closeResetModal() {
+        document.getElementById('reset-modal-overlay').style.display = 'none';
+        pendingReset = null;
+    }
+
+    async function confirmReset() {
+        if (!pendingReset) return;
+        
+        const type = pendingReset;
+        
+        if (type === 'attendance') {
+            // Clear local storage
+            localStorage.removeItem('attendance');
+            
+            // Clear Firebase (note: this only clears from the app, not from Firebase directly)
+            // In a real implementation, you'd need a Cloud Function to delete all documents
+            window.remoteAttendanceLogs = [];
+            
+            // Refresh display
+            window.allPairedEntries = [];
+            window.renderTable([]);
+            window.updateDashboard();
+            window.renderSectionButtons();
+            
+            alert('✅ Attendance database has been reset successfully!');
+        } else {
+            // Clear visitor local storage
+            localStorage.removeItem('visitors');
+            
+            // Clear Firebase
+            window.remoteVisitorLogs = [];
+            
+            // Refresh display
+            window.allVisitorEntries = [];
+            window.renderVisitorTable([]);
+            window.updateDashboard();
+            
+            alert('✅ Visitor database has been reset successfully!');
+        }
+        
+        closeResetModal();
+    }
+
+    async function confirmDelete() {
+        if (!pendingDelete) return;
+        
+        const { type, data, docId } = pendingDelete;
+        
+        if (type === 'attendance') {
+            await deleteAttendanceEntry(data, docId);
+        } else {
+            await deleteVisitorEntry(data, docId);
+        }
+        
+        closeDeleteModal();
+    }
+
+    async function deleteAttendanceEntry(entry, docId) {
+        // Delete from localStorage
+        let logs = JSON.parse(localStorage.getItem("attendance") || "[]");
+        logs = logs.filter(log => !(
+            log.studentID === entry.studentID && 
+            log.date === entry.date && 
+            log.time === entry.time &&
+            log.action === entry.action
+        ));
+        localStorage.setItem("attendance", JSON.stringify(logs));
+        
+        // Delete from Firebase if docId exists
+        if (docId && window.deleteFromFirebase) {
+            await window.deleteFromFirebase(docId);
+        }
+        
+        // Refresh display
+        if (window.currentSection) {
+            window.filterBySection(window.currentSection);
+        } else {
+            const combined = window.getCombinedLogs();
+            window.renderTable(window.pairEntries(combined));
+        }
+        updateDashboard();
+        renderSectionButtons();
+    }
+
+    async function deleteVisitorEntry(entry, docId) {
+        // Delete from localStorage
+        let visitors = JSON.parse(localStorage.getItem("visitors") || "[]");
+        visitors = visitors.filter(v => !(
+            v.visitorName === entry.visitorName && 
+            v.date === entry.date && 
+            v.time === entry.time
+        ));
+        localStorage.setItem("visitors", JSON.stringify(visitors));
+        
+        // Delete from Firebase if docId exists
+        if (docId && window.deleteVisitorFromFirebase) {
+            await window.deleteVisitorFromFirebase(docId);
+        }
+        
+        // Refresh display
+        const combined = window.getCombinedVisitorLogs();
+        window.allVisitorEntries = combined;
+        
+        // If there's an active search, re-apply it
+        if (window.currentVisitorSearchTerm) {
+            handleVisitorSearch();
+        } else {
+            window.renderVisitorTable(combined);
+        }
+        
+        updateDashboard();
+    }
+
+    // Section filtering
+    window.filterBySection = function(section) {
+        window.currentSection = section;
+        
+        // Update button states
+        document.querySelectorAll('.section-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        if (section === null) {
+            document.querySelector('.section-btn').classList.add('active');
+        } else {
+            const btn = document.querySelector(`[data-section="${section}"]`);
+            if (btn) btn.classList.add('active');
+        }
+        
+        // Clear search when changing sections
+        document.getElementById('search-input').value = '';
+        window.currentSearchTerm = '';
+        document.getElementById('clear-search').style.display = 'none';
+        
+        // Filter and render
+        const combined = window.getCombinedLogs();
+        const paired = window.pairEntries(combined);
+        
+        let filtered = paired;
+        if (section !== null) {
+            filtered = paired.filter(entry => entry.studSection === section);
+        }
+        
+        window.allPairedEntries = filtered;
+        window.renderTable(filtered);
+    };
+
+    // Search functionality
+    window.handleSearch = function() {
+        const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+        window.currentSearchTerm = searchTerm;
+        
+        // Show/hide clear button
+        const clearBtn = document.getElementById('clear-search');
+        clearBtn.style.display = searchTerm ? 'block' : 'none';
+        
+        // Reset to page 1 when searching
+        window.attendanceCurrentPage = 1;
+        
+        if (!searchTerm) {
+            window.renderTable(window.allPairedEntries);
+            return;
+        }
+        
+        const filtered = window.allPairedEntries.filter(entry => {
+            return (
+                entry.studentID.toLowerCase().includes(searchTerm) ||
+                entry.studentName.toLowerCase().includes(searchTerm) ||
+                entry.studSection.toLowerCase().includes(searchTerm)
+            );
+        });
+        
+        window.renderTable(filtered);
+    };
+
+    window.clearSearch = function() {
+        document.getElementById('search-input').value = '';
+        window.currentSearchTerm = '';
+        document.getElementById('clear-search').style.display = 'none';
+        window.attendanceCurrentPage = 1;
+        window.renderTable(window.allPairedEntries);
+    };
+
+    // Pagination functions for Attendance
+    window.changeAttendancePageSize = function() {
+        const select = document.getElementById('attendance-page-size');
+        window.attendancePageSize = parseInt(select.value);
+        window.attendanceCurrentPage = 1;
+        window.renderTable(window.allPairedEntries);
+    };
+
+    window.changeAttendancePage = function(direction) {
+        window.attendanceCurrentPage += direction;
+        window.renderTable(window.allPairedEntries);
+    };
+
+    // Visitor search functionality
+    window.handleVisitorSearch = function() {
+        const searchTerm = document.getElementById('visitor-search-input').value.toLowerCase().trim();
+        window.currentVisitorSearchTerm = searchTerm;
+        
+        // Show/hide clear button
+        const clearBtn = document.getElementById('clear-visitor-search');
+        clearBtn.style.display = searchTerm ? 'block' : 'none';
+        
+        // Reset to page 1 when searching
+        window.visitorCurrentPage = 1;
+        
+        if (!searchTerm) {
+            window.renderVisitorTable(window.allVisitorEntries);
+            return;
+        }
+        
+        const filtered = window.allVisitorEntries.filter(entry => {
+            return (
+                entry.visitorName.toLowerCase().includes(searchTerm) ||
+                entry.visitorContact.toLowerCase().includes(searchTerm) ||
+                entry.transaction.toLowerCase().includes(searchTerm)
+            );
+        });
+        
+        window.renderVisitorTable(filtered, true);
+    };
+
+    window.clearVisitorSearch = function() {
+        document.getElementById('visitor-search-input').value = '';
+        window.currentVisitorSearchTerm = '';
+        document.getElementById('clear-visitor-search').style.display = 'none';
+        window.visitorCurrentPage = 1;
+        window.renderVisitorTable(window.allVisitorEntries);
+    };
+
+    // Pagination functions for Visitors
+    window.changeVisitorPageSize = function() {
+        const select = document.getElementById('visitor-page-size');
+        window.visitorPageSize = parseInt(select.value);
+        window.visitorCurrentPage = 1;
+        window.renderVisitorTable(window.allVisitorEntries);
+    };
+
+    window.changeVisitorPage = function(direction) {
+        window.visitorCurrentPage += direction;
+        window.renderVisitorTable(window.allVisitorEntries);
+    };
+
+    // Render section buttons
+    window.renderSectionButtons = function() {
+        const combined = window.getCombinedLogs();
+        const sections = {};
+        
+        combined.forEach(log => {
+            const section = log.studSection || 'Unknown';
+            sections[section] = (sections[section] || 0) + 1;
+        });
+        
+        const sortedSections = Object.entries(sections).sort((a, b) => b[1] - a[1]);
+        
+        const container = document.getElementById('section-buttons');
+        const allButton = container.querySelector('.section-btn');
+        
+        // Update all sections count
+        document.getElementById('count-all').textContent = combined.length;
+        
+        // Remove old section buttons (keep the "All" button)
+        const oldButtons = container.querySelectorAll('.section-btn[data-section]');
+        oldButtons.forEach(btn => btn.remove());
+        
+        // Add section buttons
+        sortedSections.forEach(([section, count]) => {
+            const btn = document.createElement('button');
+            btn.className = 'section-btn';
+            btn.setAttribute('data-section', section);
+            btn.onclick = () => filterBySection(section);
+            btn.innerHTML = `📖 ${section} <span class="section-count">${count}</span>`;
+            container.appendChild(btn);
+        });
+    };
 
     function loadVoices() {
         availableVoices = speechSynthesis.getVoices();
@@ -1204,6 +2360,7 @@
 
         displayScanInfo(id, name, action);
         updateDashboard();
+        renderSectionButtons();
     }
 
     window.submitVisitor = function(event) {
@@ -1258,12 +2415,16 @@
         updateDashboard();
     };
 
-    window.renderVisitorTable = function(visitors) {
+    window.renderVisitorTable = function(visitors, isFiltered = false) {
         const tbody = document.getElementById("visitor-body");
         tbody.innerHTML = "";
         
         if (!visitors || visitors.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;">No visitor records.</td></tr>`;
+            const message = isFiltered && window.currentVisitorSearchTerm
+                ? `No results found for "${window.currentVisitorSearchTerm}"`
+                : 'No visitor records.';
+            tbody.innerHTML = `<tr><td colspan="6" class="no-results">${message}</td></tr>`;
+            updateVisitorPagination(0, 0);
             return;
         }
         
@@ -1273,17 +2434,61 @@
             return bTime - aTime;
         });
         
-        const recent = sorted.slice(0, 10);
-        recent.forEach(v => {
+        // Apply pagination
+        let paginated = sorted;
+        const totalEntries = sorted.length;
+        
+        if (window.visitorPageSize > 0) {
+            const startIndex = (window.visitorCurrentPage - 1) * window.visitorPageSize;
+            const endIndex = startIndex + window.visitorPageSize;
+            paginated = sorted.slice(startIndex, endIndex);
+        }
+        
+        paginated.forEach(v => {
+            const key = `${v.visitorName}_${v.date}_${v.time}_${v.transaction}`;
+            const docId = window.visitorDocIds ? window.visitorDocIds[key] : null;
+            
             tbody.innerHTML += `<tr>
                 <td style="font-weight:600;">${v.visitorName}</td>
                 <td>${v.visitorContact}</td>
                 <td>${v.transaction}</td>
                 <td style="color:#ef4444;">${formatTimeOnly(v.time)}</td>
                 <td>${v.date}</td>
+                <td>
+                    <button class="delete-btn" onclick='showDeleteModal("visitor", ${JSON.stringify(v).replace(/'/g, "&#39;")}, ${docId ? `"${docId}"` : null})'>
+                        🗑️ Delete
+                    </button>
+                </td>
             </tr>`;
         });
+        
+        updateVisitorPagination(totalEntries, paginated.length);
     };
+
+    function updateVisitorPagination(totalEntries, displayedEntries) {
+        const totalPages = window.visitorPageSize > 0 
+            ? Math.ceil(totalEntries / window.visitorPageSize) 
+            : 1;
+        
+        // Update page info
+        const pageInfo = document.getElementById('visitor-page-info');
+        if (totalEntries === 0) {
+            pageInfo.textContent = 'No entries';
+        } else if (window.visitorPageSize === -1) {
+            pageInfo.textContent = `Showing all ${totalEntries} entries`;
+        } else {
+            const start = (window.visitorCurrentPage - 1) * window.visitorPageSize + 1;
+            const end = start + displayedEntries - 1;
+            pageInfo.textContent = `Showing ${start}-${end} of ${totalEntries}`;
+        }
+        
+        // Update button states
+        const prevBtn = document.getElementById('visitor-prev-btn');
+        const nextBtn = document.getElementById('visitor-next-btn');
+        
+        prevBtn.disabled = window.visitorCurrentPage <= 1;
+        nextBtn.disabled = window.visitorCurrentPage >= totalPages || window.visitorPageSize === -1;
+    }
 
     window.downloadVisitorExcel = function() {
         const combined = (window.getCombinedVisitorLogs && typeof window.getCombinedVisitorLogs === 'function') ? window.getCombinedVisitorLogs() : [];
@@ -1369,14 +2574,28 @@
             let i = 0;
             while (i < g.length) {
                 const curr = g[i];
-                const base = { studentID: curr.studentID, studentName: curr.studentName, studSection: curr.studSection, date: curr.date };
+                const base = { 
+                    studentID: curr.studentID, 
+                    studentName: curr.studentName, 
+                    studSection: curr.studSection, 
+                    date: curr.date,
+                    timeInRaw: null,
+                    timeOutRaw: null
+                };
                 if (curr.action === "Time In") {
+                    base.timeInRaw = curr;
                     let out = null;
                     for (let j = i + 1; j < g.length; j++) {
-                        if (g[j].action === "Time Out") { out = g[j]; i = j; break; }
+                        if (g[j].action === "Time Out") { 
+                            out = g[j]; 
+                            base.timeOutRaw = out;
+                            i = j; 
+                            break; 
+                        }
                     }
                     pairs.push({ ...base, timeIn: formatTimeOnly(curr.time), timeOut: out ? formatTimeOnly(out.time) : "-" });
                 } else {
+                    base.timeOutRaw = curr;
                     pairs.push({ ...base, timeIn: "-", timeOut: formatTimeOnly(curr.time) });
                 }
                 i++;
@@ -1388,17 +2607,58 @@
     window.renderTable = function(paired) {
         const tbody = document.getElementById("report-body");
         tbody.innerHTML = "";
+        
         if (!paired || paired.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;">No recent records.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="no-results">
+                ${window.currentSearchTerm 
+                    ? `No results found for "${window.currentSearchTerm}"` 
+                    : window.currentSection 
+                        ? `No records found for section "${window.currentSection}"` 
+                        : 'No attendance records found'}
+            </td></tr>`;
+            updateAttendancePagination(0, 0);
             return;
         }
+        
         const sorted = paired.sort((a, b) => {
             const aTime = new Date(a.date + ' ' + (a.timeOut !== '-' ? a.timeOut : a.timeIn));
             const bTime = new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : b.timeIn));
             return bTime - aTime;
         });
-        const recent = sorted.slice(0, 10);
-        recent.forEach(e => {
+        
+        // Apply pagination
+        let paginated = sorted;
+        const totalEntries = sorted.length;
+        
+        if (window.attendancePageSize > 0) {
+            const startIndex = (window.attendanceCurrentPage - 1) * window.attendancePageSize;
+            const endIndex = startIndex + window.attendancePageSize;
+            paginated = sorted.slice(startIndex, endIndex);
+        }
+        
+        paginated.forEach(e => {
+            const deleteButtons = [];
+            
+            if (e.timeInRaw) {
+                const key = `${e.timeInRaw.studentID}_${e.timeInRaw.date}_${e.timeInRaw.time}_${e.timeInRaw.action}`;
+                const docId = window.attendanceDocIds ? window.attendanceDocIds[key] : null;
+                deleteButtons.push(`
+                    <button class="delete-btn" onclick='showDeleteModal("attendance", ${JSON.stringify(e.timeInRaw).replace(/'/g, "&#39;")}, ${docId ? `"${docId}"` : null})'>
+                        🗑️ In
+                    </button>
+                `);
+            }
+            
+            if (e.timeOutRaw) {
+                const key = `${e.timeOutRaw.studentID}_${e.timeOutRaw.date}_${e.timeOutRaw.time}_${e.timeOutRaw.action}`;
+                const docId = window.attendanceDocIds ? window.attendanceDocIds[key] : null;
+                deleteButtons.push(`
+                    <button class="delete-btn" onclick='showDeleteModal("attendance", ${JSON.stringify(e.timeOutRaw).replace(/'/g, "&#39;")}, ${docId ? `"${docId}"` : null})'>
+                        🗑️ Out
+                    </button>
+                `);
+            }
+            
             tbody.innerHTML += `<tr>
                 <td>${e.studentID}</td>
                 <td>${e.studentName}</td>
@@ -1406,9 +2666,37 @@
                 <td style="color:#ef4444;">${e.timeIn}</td>
                 <td style="color:#dc2626;">${e.timeOut}</td>
                 <td>${e.date}</td>
+                <td>${deleteButtons.join(' ')}</td>
             </tr>`;
         });
+        
+        updateAttendancePagination(totalEntries, paginated.length);
     };
+
+    function updateAttendancePagination(totalEntries, displayedEntries) {
+        const totalPages = window.attendancePageSize > 0 
+            ? Math.ceil(totalEntries / window.attendancePageSize) 
+            : 1;
+        
+        // Update page info
+        const pageInfo = document.getElementById('attendance-page-info');
+        if (totalEntries === 0) {
+            pageInfo.textContent = 'No entries';
+        } else if (window.attendancePageSize === -1) {
+            pageInfo.textContent = `Showing all ${totalEntries} entries`;
+        } else {
+            const start = (window.attendanceCurrentPage - 1) * window.attendancePageSize + 1;
+            const end = start + displayedEntries - 1;
+            pageInfo.textContent = `Showing ${start}-${end} of ${totalEntries}`;
+        }
+        
+        // Update button states
+        const prevBtn = document.getElementById('attendance-prev-btn');
+        const nextBtn = document.getElementById('attendance-next-btn');
+        
+        prevBtn.disabled = window.attendanceCurrentPage <= 1;
+        nextBtn.disabled = window.attendanceCurrentPage >= totalPages || window.attendancePageSize === -1;
+    }
 
     function downloadExcel() {
         const combined = (window.getCombinedLogs && typeof window.getCombinedLogs === 'function') ? window.getCombinedLogs() : [];
@@ -1531,7 +2819,7 @@
                         display: true,
                         position: 'top',
                         labels: {
-                            color: '#ffffff'
+                            color: '#1f2937'
                         }
                     }
                 },
@@ -1810,6 +3098,19 @@
         return `${days}d ago`;
     }
 
+    // Close modal when clicking outside
+    document.getElementById('delete-modal-overlay').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeDeleteModal();
+        }
+    });
+
+    document.getElementById('reset-modal-overlay').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeResetModal();
+        }
+    });
+
     document.addEventListener("DOMContentLoaded", () => {
         setTimeout(() => {
             if (availableVoices.length === 0) {
@@ -1821,13 +3122,19 @@
         window.scannerStarted = false;
         
         const combined = window.getCombinedLogs();
-        window.renderTable(window.pairEntries(combined));
+        const paired = window.pairEntries(combined);
+        window.allPairedEntries = paired;
+        window.renderTable(paired);
         
         const visitorCombined = window.getCombinedVisitorLogs ? window.getCombinedVisitorLogs() : [];
+        window.allVisitorEntries = visitorCombined;
         window.renderVisitorTable(visitorCombined);
         
         // Initialize dashboard
         updateDashboard();
+        
+        // Render section buttons
+        renderSectionButtons();
         
         // Update dashboard every 30 seconds
         setInterval(updateDashboard, 30000);
