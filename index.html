@@ -25,16 +25,18 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const attendanceCol = collection(db, "attendance_logs");
+        const visitorsCol = collection(db, "visitor_logs");
 
         // Keep remote logs available globally for cross-device decision making
         window.remoteAttendanceLogs = [];
+        window.remoteVisitorLogs = [];
 
         // Utility: dedupe combined entries (basic dedupe by studentID + date + time + action)
         function dedupeEntries(arr) {
             const map = {};
             arr.forEach(e => {
                 const timeStr = e.time ? String(e.time) : "";
-                const key = `${e.studentID || ''}_${e.date || ''}_${timeStr}_${e.action || ''}`;
+                const key = `${e.studentID || e.visitorName || ''}_${e.date || ''}_${timeStr}_${e.action || e.transaction || ''}`;
                 if (!map[key]) map[key] = e;
             });
             return Object.values(map);
@@ -49,6 +51,13 @@
             return dedupeEntries(combined);
         }
 
+        function getCombinedVisitorLogs() {
+            const local = JSON.parse(localStorage.getItem("visitors") || "[]");
+            const remote = window.remoteVisitorLogs || [];
+            const combined = [...remote, ...local];
+            return dedupeEntries(combined);
+        }
+
         // Make functions globally accessible for the scanner logic
         window.saveToFirebase = async (entry) => {
             try {
@@ -58,6 +67,18 @@
                     serverTimestamp: serverTimestamp()
                 });
                 console.log("Synced to Firebase");
+            } catch (e) {
+                console.error("Firebase Error: ", e);
+            }
+        };
+
+        window.saveVisitorToFirebase = async (entry) => {
+            try {
+                await addDoc(visitorsCol, {
+                    ...entry,
+                    serverTimestamp: serverTimestamp()
+                });
+                console.log("Visitor synced to Firebase");
             } catch (e) {
                 console.error("Firebase Error: ", e);
             }
@@ -87,114 +108,201 @@
             const combined = getCombinedLogs();
             window.renderTable(window.pairEntries(combined));
         });
+
+        // Real-time listener for visitors
+        const qVisitors = query(visitorsCol, orderBy("serverTimestamp", "desc"), limit(200));
+        onSnapshot(qVisitors, (snapshot) => {
+            const remoteLogs = [];
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                remoteLogs.push({
+                    visitorName: data.visitorName,
+                    visitorContact: data.visitorContact,
+                    transaction: data.transaction,
+                    time: data.time,
+                    date: data.date,
+                    serverTimestamp: data.serverTimestamp
+                });
+            });
+            window.remoteVisitorLogs = remoteLogs;
+            const combined = getCombinedVisitorLogs();
+            window.renderVisitorTable(combined);
+        });
+
+        window.getCombinedVisitorLogs = getCombinedVisitorLogs;
     </script>
 
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Space+Mono:wght@400;700&display=swap');
+
         :root {
-            --primary-color: #007bff;
-            --secondary-color: #4CAF50;
-            --background-color: #f8f9fa;
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --secondary-color: #10b981;
+            --secondary-hover: #059669;
+            --accent-color: #f59e0b;
+            --background-color: #f8fafc;
             --card-background: white;
-            --border-color: #dee2e6;
+            --border-color: #e2e8f0;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--background-color);
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
             padding: 20px;
-            margin: 0;
-            color: #343a40;
+            color: var(--text-primary);
+            min-height: 100vh;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 18px;
+            margin-bottom: 24px;
             background: var(--card-background);
-            padding: 16px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.8);
         }
         .header-flex {
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 12px;
+            gap: 16px;
             flex-wrap: wrap;
         }
         .logo {
-            max-width: 64px;
+            max-width: 72px;
             height: auto;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
         }
         .company-name {
-            font-size: clamp(18px, 4vw, 28px);
-            color: #212529;
+            font-size: clamp(20px, 4vw, 32px);
+            color: var(--text-primary);
             margin: 0;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: -0.5px;
         }
         .company-address {
-            font-size: clamp(12px, 2.5vw, 14px);
-            color: #6c757d;
-            margin-top: 4px;
+            font-size: clamp(13px, 2.5vw, 15px);
+            color: var(--text-secondary);
+            margin-top: 6px;
+            font-weight: 400;
         }
 
         .container {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            max-width: 1000px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            max-width: 1400px;
             margin: 0 auto;
         }
-        .scanner-container, .report-container {
-            background: var(--card-background);
-            padding: 18px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+        @media (min-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr 1fr;
+            }
+            .report-container {
+                grid-column: 1 / -1;
+            }
         }
-        .scanner-container { flex: 1; min-width: 100%; max-width: 100%; }
+
+        .scanner-container, .visitor-container, .report-container {
+            background: var(--card-background);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h2 {
+            font-size: clamp(20px, 3vw, 24px);
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
         /* Voice settings section */
         .voice-settings {
-            background: #f1f3f5;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 14px;
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+            border: 1px solid var(--border-color);
         }
         .voice-settings label {
             display: block;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
             font-weight: 600;
             font-size: 14px;
+            color: var(--text-primary);
         }
         .voice-settings select {
             width: 100%;
-            padding: 8px;
-            border-radius: 5px;
-            border: 1px solid var(--border-color);
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 2px solid var(--border-color);
             font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            background: white;
+            transition: all 0.3s ease;
+        }
+        .voice-settings select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
         .voice-test-btn {
-            background-color: #6c757d;
-            padding: 6px 12px;
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+            padding: 8px 16px;
             font-size: 13px;
-            margin-top: 8px;
+            margin-top: 10px;
+            border: none;
         }
         .voice-test-btn:hover {
-            background-color: #5a6268;
+            background: linear-gradient(135deg, #475569 0%, #334155 100%);
+            transform: translateY(-1px);
         }
 
         /* Make the qr-reader a responsive square container and position overlay on top */
         #qr-reader { 
             width: 100%; 
-            margin-bottom: 14px; 
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
+            margin-bottom: 16px; 
+            border: 3px solid var(--primary-color);
+            border-radius: 12px;
             overflow: hidden;
             position: relative;
-            /* ensure a square area that adapts to viewport */
             aspect-ratio: 1 / 1;
-            min-height: 240px;
+            min-height: 260px;
             max-height: 60vh;
-            background: #000; /* fallback while camera initializes */
+            background: #000;
+            box-shadow: var(--shadow-md);
         }
 
         /* Visual overlay that shows a centered square (equal margins on each side) */
@@ -208,13 +316,12 @@
             max-width: 720px;
             max-height: 720px;
             border-radius: 12px;
-            box-shadow: 0 0 0 9999px rgba(0,0,0,0.35), inset 0 0 0 3px rgba(255,255,255,0.12);
-            border: 2px dashed rgba(255,255,255,0.7);
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.4), inset 0 0 0 3px rgba(255,255,255,0.15);
+            border: 3px dashed rgba(255,255,255,0.8);
             pointer-events: none;
             z-index: 20;
         }
 
-        /* small label within overlay to help user align (optional) */
         #qr-reader .qr-overlay::after {
             content: '';
             display: block;
@@ -223,28 +330,127 @@
             border-radius: 10px;
         }
 
+        /* Visitor Form Styles */
+        .visitor-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            padding: 12px 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 15px;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group input::placeholder,
+        .form-group textarea::placeholder {
+            color: #cbd5e1;
+        }
+
         button { 
-            background-color: var(--primary-color);
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
             color: white;
             border: none;
-            padding: 10px 16px;
-            border-radius: 5px;
+            padding: 12px 20px;
+            border-radius: 10px;
             font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.3s;
-            margin-top: 12px;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+            font-family: 'Outfit', sans-serif;
+            box-shadow: var(--shadow-md);
         }
-        button:hover { background-color: #0056b3; }
+        button:hover { 
+            background: linear-gradient(135deg, var(--primary-hover) 0%, #1e40af 100%);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .submit-visitor-btn {
+            background: linear-gradient(135deg, var(--secondary-color) 0%, var(--secondary-hover) 100%);
+            font-size: 16px;
+            padding: 14px 24px;
+        }
+
+        .submit-visitor-btn:hover {
+            background: linear-gradient(135deg, var(--secondary-hover) 0%, #047857 100%);
+        }
 
         /* Table responsiveness */
         .table-wrapper {
             width: 100%;
             overflow-x: auto;
+            border-radius: 10px;
+            box-shadow: var(--shadow-sm);
         }
-        table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 13px; min-width: 700px; }
-        th, td { border: 1px solid var(--border-color); padding: 10px; text-align: left; }
-        th { background-color: #e9ecef; font-weight: 600; }
-        td { word-break: break-word; vertical-align: middle; }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin-top: 10px; 
+            font-size: 14px; 
+            min-width: 700px;
+            background: white;
+        }
+        th, td { 
+            border: 1px solid var(--border-color); 
+            padding: 12px 14px; 
+            text-align: left; 
+        }
+        th { 
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+        td { 
+            word-break: break-word; 
+            vertical-align: middle;
+            color: var(--text-primary);
+        }
+
+        tr:hover {
+            background-color: #f8fafc;
+        }
 
         /* Scan display modal */
         #scan-display {
@@ -253,36 +459,94 @@
             left: 50%; 
             transform: translate(-50%, -50%);
             background: var(--card-background); 
-            border: 3px solid var(--secondary-color); 
-            border-radius: 15px;
-            padding: 22px 26px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border: 4px solid var(--secondary-color); 
+            border-radius: 20px;
+            padding: 28px 32px; 
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
             z-index: 9999; 
             display: none; 
             text-align: center; 
             font-size: 18px;
             width: calc(100% - 40px);
-            max-width: 420px;
-            min-width: 260px;
+            max-width: 440px;
+            min-width: 280px;
+            animation: popIn 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
         }
-        #scan-display .icon { font-size: 42px; margin-bottom: 8px; }
-        #scan-display strong { font-size: 22px; display: block; margin: 5px 0 8px; }
+
+        @keyframes popIn {
+            0% {
+                transform: translate(-50%, -50%) scale(0.8);
+                opacity: 0;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 1;
+            }
+        }
+
+        #scan-display .icon { 
+            font-size: 52px; 
+            margin-bottom: 12px;
+            animation: bounce 0.5s ease;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        #scan-display strong { 
+            font-size: 24px; 
+            display: block; 
+            margin: 8px 0 12px;
+            font-weight: 700;
+        }
+
+        .success-message {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border: 2px solid var(--secondary-color);
+            color: #065f46;
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin-top: 12px;
+            font-weight: 600;
+            display: none;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        #camera-status {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+        }
 
         @media (max-width: 850px) {
             .container { max-width: 95%; }
             .company-name { font-size: 20px; }
-            table { min-width: 640px; font-size: 12px; }
-            #qr-reader { min-height: 200px; max-height: 55vh; }
+            table { min-width: 640px; font-size: 13px; }
+            #qr-reader { min-height: 220px; max-height: 55vh; }
             #qr-reader .qr-overlay { width: 84%; }
         }
 
         @media (max-width: 420px) {
-            .header { padding: 12px; }
-            .logo { max-width: 56px; }
-            button { font-size: 14px; padding: 9px 12px; }
-            #scan-display { padding: 18px 20px; font-size: 16px; max-width: 360px; }
-            table { min-width: 600px; font-size: 11px; }
-            #qr-reader { min-height: 180px; }
+            .header { padding: 16px; }
+            .logo { max-width: 60px; }
+            button { font-size: 14px; padding: 10px 16px; }
+            #scan-display { padding: 22px 24px; font-size: 16px; max-width: 360px; }
+            table { min-width: 600px; font-size: 12px; }
+            #qr-reader { min-height: 200px; }
             #qr-reader .qr-overlay { width: 88%; }
         }
     </style>
@@ -314,9 +578,61 @@
         
         <!-- Keep an overlay inside the reader to show the centered square area with equal margins -->
         <div id="qr-reader"><div class="qr-overlay" aria-hidden="true"></div></div>
-        <p id="camera-status" style="text-align:center; color:gray;"></p>
+        <p id="camera-status"></p>
     </section>
     
+    <!-- NEW: Visitor Registration Section -->
+    <section class="visitor-container">
+        <h2>👤 Visitor Registration</h2>
+        <form class="visitor-form" id="visitor-form" onsubmit="submitVisitor(event)">
+            <div class="form-group">
+                <label for="visitor-name">
+                    📝 Full Name
+                </label>
+                <input 
+                    type="text" 
+                    id="visitor-name" 
+                    name="visitor-name" 
+                    placeholder="Enter visitor's full name"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="visitor-contact">
+                    📞 Contact Number
+                </label>
+                <input 
+                    type="tel" 
+                    id="visitor-contact" 
+                    name="visitor-contact" 
+                    placeholder="e.g., 09123456789"
+                    required
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="visitor-transaction">
+                    💼 Purpose of Visit / Transaction
+                </label>
+                <textarea 
+                    id="visitor-transaction" 
+                    name="visitor-transaction" 
+                    placeholder="Describe the purpose of visit or transaction details..."
+                    required
+                ></textarea>
+            </div>
+            
+            <button type="submit" class="submit-visitor-btn">
+                ✅ Register Visitor
+            </button>
+            
+            <div id="visitor-success" class="success-message">
+                ✓ Visitor registered successfully!
+            </div>
+        </form>
+    </section>
+
     <section class="report-container">
         <h2>📋 Recent Attendance Log (Live Sync)</h2>
         <div class="table-wrapper">
@@ -335,6 +651,25 @@
             </table>
         </div>
         <button onclick="downloadExcel()">⬇️ Download Full Excel Log</button>
+    </section>
+
+    <section class="report-container">
+        <h2>👥 Visitor Log</h2>
+        <div class="table-wrapper">
+            <table id="visitorTable">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Contact</th>
+                        <th>Transaction</th>
+                        <th>Time</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody id="visitor-body"></tbody>
+            </table>
+        </div>
+        <button onclick="downloadVisitorExcel()">⬇️ Download Visitor Excel Log</button>
     </section>
 </div>
 
@@ -630,6 +965,120 @@
         displayScanInfo(id, name, action); 
     }
 
+    // NEW: Submit visitor function
+    window.submitVisitor = function(event) {
+        event.preventDefault();
+        
+        const name = document.getElementById('visitor-name').value.trim();
+        const contact = document.getElementById('visitor-contact').value.trim();
+        const transaction = document.getElementById('visitor-transaction').value.trim();
+        
+        if (!name || !contact || !transaction) {
+            alert('Please fill in all fields');
+            return;
+        }
+        
+        const timestamp = getCurrentTime();
+        const date = getTodayDate();
+        
+        const visitorEntry = {
+            visitorName: name,
+            visitorContact: contact,
+            transaction: transaction,
+            time: timestamp,
+            date: date
+        };
+        
+        // Save locally
+        let visitors = JSON.parse(localStorage.getItem("visitors") || "[]");
+        visitors.push(visitorEntry);
+        localStorage.setItem("visitors", JSON.stringify(visitors));
+        
+        // Sync to Firebase
+        if (window.saveVisitorToFirebase) {
+            window.saveVisitorToFirebase(visitorEntry);
+        }
+        
+        // Sync to Google Sheets (no-cors fire-and-forget)
+        fetch(GOOGLE_SHEET_URL, {
+            method: "POST",
+            mode: 'no-cors',
+            body: JSON.stringify(visitorEntry),
+            headers: { "Content-Type": "application/json" }
+        }).catch(e => {
+            /* no-cors will often throw; ignoring as this is backup */
+        });
+        
+        // Show success message
+        const successMsg = document.getElementById('visitor-success');
+        successMsg.style.display = 'block';
+        
+        // Voice announcement
+        speakMessage(`Visitor ${cleanNameForSpeech(name)} registered successfully.`);
+        
+        // Reset form
+        document.getElementById('visitor-form').reset();
+        
+        // Hide success message after 3 seconds
+        setTimeout(() => {
+            successMsg.style.display = 'none';
+        }, 3000);
+    };
+
+    // NEW: Render visitor table
+    window.renderVisitorTable = function(visitors) {
+        const tbody = document.getElementById("visitor-body");
+        tbody.innerHTML = "";
+        
+        if (!visitors || visitors.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;">No visitor records.</td></tr>`;
+            return;
+        }
+        
+        // Sort by most recent first
+        const sorted = visitors.sort((a, b) => {
+            const aTime = new Date(a.date + ' ' + a.time);
+            const bTime = new Date(b.date + ' ' + b.time);
+            return bTime - aTime;
+        });
+        
+        // Show recent 3 visitors (changed from 10 to 3)
+        const recent = sorted.slice(0, 3);
+        recent.forEach(v => {
+            tbody.innerHTML += `<tr>
+                <td style="font-weight:600;">${v.visitorName}</td>
+                <td>${v.visitorContact}</td>
+                <td>${v.transaction}</td>
+                <td style="color:#2563eb;">${formatTimeOnly(v.time)}</td>
+                <td>${v.date}</td>
+            </tr>`;
+        });
+    };
+
+    // NEW: Download visitor Excel
+    window.downloadVisitorExcel = function() {
+        const combined = (window.getCombinedVisitorLogs && typeof window.getCombinedVisitorLogs === 'function') ? window.getCombinedVisitorLogs() : [];
+        if (combined.length === 0) return alert("No visitor data.");
+        
+        const sorted = combined.sort((a, b) => {
+            const aTime = new Date(a.date + ' ' + a.time);
+            const bTime = new Date(b.date + ' ' + b.time);
+            return bTime - aTime;
+        });
+        
+        const data = sorted.map(v => ({
+            "Date": v.date,
+            "Time": formatTimeOnly(v.time),
+            "Name": v.visitorName,
+            "Contact": v.visitorContact,
+            "Transaction": v.transaction
+        }));
+        
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Visitors");
+        XLSX.writeFile(wb, `ARK_Visitors_${getTodayDate()}.xlsx`);
+    };
+
     function onScanSuccess(text) {
         // prevent overlapping processing
         if (scanning) return;
@@ -727,8 +1176,8 @@
             const bTime = new Date(b.date + ' ' + (b.timeOut !== '-' ? b.timeOut : b.timeIn));
             return bTime - aTime;
         });
-        // Limit to 5 recent entries as requested (live sync -> show latest 5)
-        const recent = sorted.slice(0, 5);
+        // Limit to 3 recent entries (changed from 5 to 3)
+        const recent = sorted.slice(0, 3);
         recent.forEach(e => {
             tbody.innerHTML += `<tr>
                 <td>${e.studentID}</td>
@@ -790,9 +1239,13 @@
         }, 200);
         
         startScanner();
-        // Render initial table from combined logs (if any)
+        
+        // Render initial tables from combined logs (if any)
         const combined = window.getCombinedLogs();
         window.renderTable(window.pairEntries(combined));
+        
+        const visitorCombined = window.getCombinedVisitorLogs ? window.getCombinedVisitorLogs() : [];
+        window.renderVisitorTable(visitorCombined);
     });
 </script>
 </body>
