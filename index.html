@@ -152,6 +152,36 @@
         }
         .scanner-container { flex: 1; min-width: 100%; max-width: 100%; }
 
+        /* Voice settings section */
+        .voice-settings {
+            background: #f1f3f5;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 14px;
+        }
+        .voice-settings label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .voice-settings select {
+            width: 100%;
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+        .voice-test-btn {
+            background-color: #6c757d;
+            padding: 6px 12px;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+        .voice-test-btn:hover {
+            background-color: #5a6268;
+        }
+
         /* Make the qr-reader a responsive square container and position overlay on top */
         #qr-reader { 
             width: 100%; 
@@ -272,6 +302,16 @@
 <div class="container">
     <section class="scanner-container">
         <h2>📷 QR Code Scanner</h2>
+        
+        <!-- Voice Settings -->
+        <div class="voice-settings">
+            <label for="voice-select">🔊 Voice Selection:</label>
+            <select id="voice-select">
+                <option value="">Loading voices...</option>
+            </select>
+            <button class="voice-test-btn" onclick="testVoice()">Test Voice</button>
+        </div>
+        
         <!-- Keep an overlay inside the reader to show the centered square area with equal margins -->
         <div id="qr-reader"><div class="qr-overlay" aria-hidden="true"></div></div>
         <p id="camera-status" style="text-align:center; color:gray;"></p>
@@ -309,21 +349,185 @@
 
     const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbyEaAfHchWSYuJG4GgDfPR9KdRsaoNQLociaOmqQQEcCXrVF33FjshldVXByjNGRc-h/exec";
     
-    let philippineVoice = null;
+    // Enhanced voice selection and management
+    let selectedVoice = null;
+    let availableVoices = [];
 
-    function setPhilippineVoice() {
-        const voices = speechSynthesis.getVoices();
-        philippineVoice = voices.find(v => v.lang && (v.lang.toLowerCase().includes('ph') || v.lang.toLowerCase().includes('fil'))) || 
-                         voices.find(v => v.name && v.name.includes('Google US English')) || voices[0];
+    // Voice initialization with better Filipino support
+    function loadVoices() {
+        availableVoices = speechSynthesis.getVoices();
+        
+        if (availableVoices.length === 0) {
+            // Voices not loaded yet, wait for event
+            return;
+        }
+
+        const voiceSelect = document.getElementById('voice-select');
+        voiceSelect.innerHTML = '';
+        
+        // Prioritize Filipino/Tagalog voices
+        const filipinoVoices = availableVoices.filter(v => 
+            v.lang.toLowerCase().includes('fil') || 
+            v.lang.toLowerCase().includes('tl') ||
+            v.lang.toLowerCase().includes('ph') ||
+            v.name.toLowerCase().includes('filipino') ||
+            v.name.toLowerCase().includes('tagalog')
+        );
+        
+        // Group voices by language
+        const englishVoices = availableVoices.filter(v => 
+            v.lang.toLowerCase().startsWith('en') && 
+            !filipinoVoices.includes(v)
+        );
+        
+        const otherVoices = availableVoices.filter(v => 
+            !filipinoVoices.includes(v) && !englishVoices.includes(v)
+        );
+
+        // Add Filipino voices first (if available)
+        if (filipinoVoices.length > 0) {
+            const filipinoGroup = document.createElement('optgroup');
+            filipinoGroup.label = '🇵🇭 Filipino Voices';
+            filipinoVoices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.dataset.voiceUri = voice.voiceURI;
+                filipinoGroup.appendChild(option);
+            });
+            voiceSelect.appendChild(filipinoGroup);
+        }
+
+        // Add English voices
+        if (englishVoices.length > 0) {
+            const englishGroup = document.createElement('optgroup');
+            englishGroup.label = '🇺🇸 English Voices';
+            englishVoices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = filipinoVoices.length + index;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.dataset.voiceUri = voice.voiceURI;
+                englishGroup.appendChild(option);
+            });
+            voiceSelect.appendChild(englishGroup);
+        }
+
+        // Add other voices
+        if (otherVoices.length > 0) {
+            const otherGroup = document.createElement('optgroup');
+            otherGroup.label = '🌍 Other Voices';
+            otherVoices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = filipinoVoices.length + englishVoices.length + index;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.dataset.voiceUri = voice.voiceURI;
+                otherGroup.appendChild(option);
+            });
+            voiceSelect.appendChild(otherGroup);
+        }
+
+        // Auto-select the best Filipino voice, or fallback to good English voice
+        if (filipinoVoices.length > 0) {
+            selectedVoice = filipinoVoices[0];
+            voiceSelect.selectedIndex = 0;
+        } else {
+            // Fallback: prefer Google US English or first English voice
+            const googleUSEnglish = englishVoices.find(v => v.name.includes('Google US English'));
+            selectedVoice = googleUSEnglish || englishVoices[0] || availableVoices[0];
+            const selectedIndex = availableVoices.indexOf(selectedVoice);
+            voiceSelect.selectedIndex = selectedIndex;
+        }
+
+        // Save preference
+        if (selectedVoice) {
+            localStorage.setItem('preferredVoice', selectedVoice.voiceURI);
+        }
+
+        // Restore saved preference if exists
+        const savedVoiceURI = localStorage.getItem('preferredVoice');
+        if (savedVoiceURI) {
+            const savedVoice = availableVoices.find(v => v.voiceURI === savedVoiceURI);
+            if (savedVoice) {
+                selectedVoice = savedVoice;
+                const savedIndex = availableVoices.indexOf(savedVoice);
+                voiceSelect.selectedIndex = savedIndex;
+            }
+        }
+
+        // Add change listener
+        voiceSelect.addEventListener('change', function() {
+            const index = parseInt(this.value);
+            selectedVoice = availableVoices[index];
+            localStorage.setItem('preferredVoice', selectedVoice.voiceURI);
+        });
     }
 
+    // Load voices when available
     if (speechSynthesis.onvoiceschanged !== undefined) {
-        speechSynthesis.onvoiceschanged = setPhilippineVoice;
+        speechSynthesis.onvoiceschanged = loadVoices;
     }
-    setPhilippineVoice();
+    
+    // Try loading immediately
+    setTimeout(loadVoices, 100);
 
+    // Enhanced name cleaning for better pronunciation
     function cleanNameForSpeech(name) {
-        return name ? name.replace(/\./g, '').trim() : 'Student';
+        if (!name) return 'Student';
+        
+        // Remove periods and excessive punctuation
+        let cleaned = name.replace(/\./g, ' ').trim();
+        
+        // Add slight pauses for better pronunciation with commas
+        cleaned = cleaned.replace(/\s+/g, ', ');
+        
+        // Handle common Filipino name patterns
+        cleaned = cleaned.replace(/Jr,/gi, 'Junior,');
+        cleaned = cleaned.replace(/Sr,/gi, 'Senior,');
+        cleaned = cleaned.replace(/III,/gi, 'the third,');
+        cleaned = cleaned.replace(/II,/gi, 'the second,');
+        
+        return cleaned;
+    }
+
+    // Test voice function
+    window.testVoice = function() {
+        const testMessage = "Magandang araw. Ito ay isang test ng voice synthesizer. Good morning. This is a voice synthesizer test.";
+        speakMessage(testMessage, true);
+    };
+
+    // Enhanced speech synthesis function
+    function speakMessage(text, isTest = false) {
+        // Cancel any ongoing speech
+        speechSynthesis.cancel();
+        
+        // Wait a tiny bit to ensure cancellation completes
+        setTimeout(() => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Apply selected voice
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            
+            // Optimize settings for clarity
+            utterance.rate = 0.9;  // Slightly slower for clarity
+            utterance.pitch = 1.0; // Normal pitch
+            utterance.volume = 1.0; // Full volume
+            
+            // Add error handling
+            utterance.onerror = function(event) {
+                console.error('Speech synthesis error:', event);
+            };
+            
+            utterance.onend = function() {
+                if (isTest) {
+                    console.log('Voice test completed');
+                }
+            };
+            
+            // Speak
+            speechSynthesis.speak(utterance);
+        }, 50);
     }
 
     function formatTimeOnly(str) {
@@ -364,15 +568,20 @@
                         <div style="color:#666; font-size:16px;">ID: ${id}</div>`;
         el.style.display = "block";
         
-        speechSynthesis.cancel();
-        const speechName = (action === 'Failed' || name === 'Invalid QR Code') ? 'Attention' : cleanNameForSpeech(name);
-        const speechAction = action === 'Failed' ? 'Scan failed' : `${action} confirmed`;
-        const msg = new SpeechSynthesisUtterance(`${speechName}. ${speechAction}.`);
+        // Enhanced voice announcement
+        let speechText = '';
         
-        if (philippineVoice) msg.voice = philippineVoice;
-        msg.pitch = 1;
-        msg.rate = 0.85; 
-        speechSynthesis.speak(msg);
+        if (action === 'Failed' || name === 'Invalid QR Code') {
+            speechText = 'Attention. Scan failed. Please try again.';
+        } else {
+            const cleanedName = cleanNameForSpeech(name);
+            const actionPhrase = action === 'Time In' ? 'time in confirmed' : 'time out confirmed';
+            
+            // Create natural-sounding announcement
+            speechText = `${cleanedName}. ${actionPhrase}.`;
+        }
+        
+        speakMessage(speechText);
         
         setTimeout(() => el.style.display = "none", 3000);
     }
@@ -573,6 +782,13 @@
     };
 
     document.addEventListener("DOMContentLoaded", () => {
+        // Ensure voices are loaded before starting
+        setTimeout(() => {
+            if (availableVoices.length === 0) {
+                loadVoices();
+            }
+        }, 200);
+        
         startScanner();
         // Render initial table from combined logs (if any)
         const combined = window.getCombinedLogs();
